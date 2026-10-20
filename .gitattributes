@@ -1,0 +1,12 @@
+* text=auto
+*.png binary
+*.ico binary
+*.ps1 text eol=crlf
+
+# Private working files: never part of the public repository (git archive / tools/export-public.ps1 honour this).
+CLAUDE.md export-ignore
+PUBLISHING.md export-ignore
+.claude export-ignore
+tools/check-mirrors.ps1 export-ignore
+tools/smoke-release.ps1 export-ignore
+tools/export-public.ps1 export-ignore

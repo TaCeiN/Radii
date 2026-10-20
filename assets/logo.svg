@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs><linearGradient id="t" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#282b3a"/><stop offset="1" stop-color="#111219"/></linearGradient></defs>
+  <rect width="128" height="128" rx="28" fill="url(#t)"/>
+  <line x1="64.00" y1="42.00" x2="64.00" y2="24.00" stroke="#4cc2ff" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="64.00" cy="18.00" r="9" fill="#4cc2ff"/>
+  <line x1="83.05" y1="53.00" x2="98.64" y2="44.00" stroke="#4cc2ff" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="103.84" cy="41.00" r="12" fill="#ffffff"/>
+  <line x1="83.05" y1="75.00" x2="98.64" y2="84.00" stroke="#4cc2ff" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="103.84" cy="87.00" r="9" fill="#4cc2ff"/>
+  <line x1="64.00" y1="86.00" x2="64.00" y2="104.00" stroke="#4cc2ff" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="64.00" cy="110.00" r="9" fill="#4cc2ff"/>
+  <line x1="44.95" y1="75.00" x2="29.36" y2="84.00" stroke="#4cc2ff" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="24.16" cy="87.00" r="9" fill="#4cc2ff"/>
+  <line x1="44.95" y1="53.00" x2="29.36" y2="44.00" stroke="#4cc2ff" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="24.16" cy="41.00" r="9" fill="#4cc2ff"/>
+  <circle cx="64" cy="64" r="14" fill="#4cc2ff"/>
+</svg>

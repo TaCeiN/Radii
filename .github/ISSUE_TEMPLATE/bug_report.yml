@@ -1,0 +1,35 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got. A screenshot helps.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Radii version
+      description: Shown in the settings window (tray icon) and in the installer header.
+      placeholder: "0.3.0"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: "Windows 11 24H2"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Contents of `%APPDATA%\Radii\errors.log` and, for missing menu entries, `last-menu.txt`.
+      render: text
+  - type: textarea
+    id: extra
+    attributes:
+      label: Extra context
+      description: Which file type or folder you clicked, other shell extensions installed (7-Zip, Git, ...), VPN, multiple monitors.

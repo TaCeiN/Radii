@@ -1,0 +1,8 @@
+bin/
+obj/
+.vs/
+*.user
+snapshot.png
+dist/
+.claude/
+tools/mirrors-result.txt
