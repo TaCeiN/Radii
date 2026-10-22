@@ -67,7 +67,7 @@ tray menu) does it by hand. Engines are downloaded only when you pick them in th
 
 ## Converter
 
-Shift + right click on a file, or point at it and press the converter key (F9 by default, configurable), and the ring is replaced by
+Hold Shift and right-click a file (or click the "Convert" pill beside the ring) and the ring is replaced by
 the formats the file can be converted to. The result is saved next to the original (never overwrites); a small notification in the
 bottom-right corner shows progress, has a cancel button and, when done, a "Show in folder" link.
 
@@ -85,10 +85,25 @@ bottom-right corner shows progress, has a cancel button and, when done, a "Show 
 
 The engines live in `%APPDATA%\Radii\engines` and are downloaded once (by the installer, or the first time they are needed).
 
+## Editors
+
+Hold Ctrl and right-click (or click the "Edit" pill beside the ring) for small windows that fix a file in seconds. The result is always
+a new file next to the original.
+
+| Files | Tools |
+|---|---|
+| Pictures | crop and rotate, resize, colour and light, compress to a size |
+| Video | trim (exact or fast cut), crop, remove sound, speed, frame to picture, piece to GIF |
+| Audio | trim with waveform, join, volume / normalise / speed / cut silence (with a listen button) |
+| PDF | merge, split, pages (extract, rotate, move, delete), compress |
+| Any | strip metadata, bulk rename with undo (only for several files) |
+
+Under every ring pills switch between the normal, convert and edit rings; `Left`/`Right` or `A`/`D` do the same from the keyboard.
+
 ## Use
 
 - **Gesture:** hold the right button, move towards a sector, release. A plain click opens the ring and waits for a click.
-- **Keys while the ring is open:** `1`–`9` pick a sector, arrows or the mouse wheel move the highlight, `Enter` confirms, `Esc` closes.
+- **Keys while the ring is open:** arrows or the mouse wheel move the highlight, `Enter` confirms, `Esc` closes.
 - **Tray icon:** left click opens settings; menu toggles the ring and exits.
 
 ## Menus

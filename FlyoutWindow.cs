@@ -110,6 +110,13 @@ internal sealed class FlyoutWindow : Window
         SetWindowPos(handle, HWND_TOPMOST, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
         GetWindowRect(handle, out _bounds);
         if (firstTime)
-            BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(90)));
+        {
+            // Fades in and slides out of the ring a few pixels, so the list seems to unfold from the sector.
+            BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140)));
+            var from = WentLeft ? 14 : -14;
+            var slide = new TranslateTransform(from, 0);
+            _view.RenderTransform = slide;
+            slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(from, 0, TimeSpan.FromMilliseconds(240)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+        }
     }
 }

@@ -9,7 +9,8 @@ using static Radii.Native;
 namespace Radii;
 
 /// <param name="Flyout">Opens the extensions flyout instead of running an action.</param>
-internal sealed record RadialItem(string Id, string Glyph, string Label, Action Run, bool Danger = false, bool Flyout = false);
+/// <param name="Navigates">The sector opens another ring: the ring stays on screen and <see cref="Run"/> swaps it (with the back pill).</param>
+internal sealed record RadialItem(string Id, string Glyph, string Label, Action Run, bool Danger = false, bool Flyout = false, bool Navigates = false);
 
 internal enum FileKind
 {
@@ -49,7 +50,6 @@ internal static class Menus
         ("rename", "Rename", "Переименовать"),
         ("delete", "Delete", "Удалить"),
         ("copypath", "Copy as path", "Копировать как путь"),
-        ("convert", "Convert…", "Конвертировать…"),
         ("compress", "Compress to zip", "Сжать в zip"),
         ("movetonew", "Move to new folder", "В новую папку"),
         ("hash", "SHA-256", "SHA-256"),
@@ -177,12 +177,6 @@ internal static class Menus
         items.Add(Item("delete", "\uE74D", "Delete", "Удалить", () => Keys.Chord(Keys.Delete), danger: true));
         items.Add(Item("copypath", "\uE71B", "Copy as path", "Копировать как путь", () => Keys.Chord(Keys.Ctrl, Keys.Shift, Keys.C)));
 
-        if (d.Paths.Count > 0 && Converters.ConvertMenu.Supports(d.Paths))
-        {
-            var paths = d.Paths;
-            items.Add(Item("convert", "", "Convert…", "Конвертировать…", () => OpenConverter(paths)));
-        }
-
         if (!single && d.Paths.Count > 1)
         {
             var paths = d.Paths;
@@ -281,15 +275,6 @@ internal static class Menus
         if (command.Admin)
             info.Verb = "runas";
         Launch(info);
-    }
-
-    /// <summary>The ring with the conversion targets for these files, opened where the pointer is now.</summary>
-    private static void OpenConverter(IReadOnlyList<string> paths)
-    {
-        var items = Converters.ConvertMenu.For(paths);
-        if (items.Count == 0)
-            return;
-        Converters.ConvertHost.Show?.Invoke(items, "", new ShellContext(paths, null, IntPtr.Zero));
     }
 
     private static void Open(string target) => Launch(new ProcessStartInfo(target) { UseShellExecute = true });

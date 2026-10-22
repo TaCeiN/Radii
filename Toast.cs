@@ -221,9 +221,20 @@ internal sealed class ToastWindow : Window
     {
         Show();
         if (Settings.Current.Animations)
-            BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160)));
+        {
+            BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(200)));
+            if (Content is UIElement root)
+            {
+                // Slides in from the screen edge.
+                var slide = new TranslateTransform(36, 0);
+                root.RenderTransform = slide;
+                slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(36, 0, TimeSpan.FromMilliseconds(320)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+            }
+        }
         else
+        {
             Opacity = 1;
+        }
     }
 
     public void SetProgress(string text, double? progress)
@@ -293,8 +304,14 @@ internal sealed class ToastWindow : Window
             Close();
             return;
         }
-        var fade = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(140));
+        var fade = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(180));
         fade.Completed += (_, _) => Close();
         BeginAnimation(OpacityProperty, fade);
+        if (Content is UIElement root)
+        {
+            var slide = new TranslateTransform(0, 0);
+            root.RenderTransform = slide;
+            slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(0, 28, TimeSpan.FromMilliseconds(180)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } });
+        }
     }
 }

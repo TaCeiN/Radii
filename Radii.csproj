@@ -16,7 +16,7 @@
     <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
     <SatelliteResourceLanguages>en;ru</SatelliteResourceLanguages>
     <NoWarn>$(NoWarn);WFO0003;WPF0001</NoWarn>
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
     <ApplicationIcon>assets\app.ico</ApplicationIcon>
     <Company>TaCeiN</Company>
     <Product>Radii</Product>
@@ -27,6 +27,11 @@
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <DebugType>none</DebugType>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- dist\ holds release output and the public export staging copy: never compile it. -->
+    <Compile Remove="dist\**" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- WinForms is only used for the tray icon; keep WPF types unambiguous. -->
@@ -40,6 +45,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="PDFsharp" Version="6.2.4" />
     <PackageReference Include="Tomlyn" Version="2.10.1" />
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>

@@ -88,18 +88,18 @@ internal sealed class SettingsWindow : Window
             Toggle(T("Gesture mode", "Режим жеста"), T("Opens on press; release over a sector picks it. Off: opens on release, then click", "Открывается при нажатии; отпустить над сектором = выбрать. Выключено: открывается при отпускании, дальше клик"), () => settings.GestureMode, v => settings.GestureMode = v),
             Toggle(T("Sort sectors by usage", "Сортировать секторы по частоте"), T("The first sector keeps its place", "Первый сектор остаётся на месте"), () => settings.SortByUsage, v => settings.SortByUsage = v));
 
-        Section(T("Converter", "Конвертер"));
+        Section(T("Converter and editors", "Конвертер и правка"));
         Card(
             Toggle(T("Shift + right click opens the converter", "Shift + ПКМ открывает конвертер"), T("Off: Shift + right click shows the native Windows menu again", "Выключено: Shift + ПКМ снова показывает обычное меню Windows"), () => settings.ShiftConvert, v => settings.ShiftConvert = v),
-            Combo(T("Converter key", "Клавиша конвертера"), [("", T("Off", "Выключена")), ("F9", "F9"), ("F8", "F8"), ("F7", "F7"), ("Ctrl+Alt+C", "Ctrl + Alt + C"), ("Ctrl+Shift+C", "Ctrl + Shift + C")], () => settings.ConvertHotkey, v => settings.ConvertHotkey = v),
-            Info(T("How", "Как"), T("Point at a file and press the key: the ring shows the formats it can be converted to. Engines (FFmpeg, ImageMagick, Pandoc) are downloaded on first use.", "Наведи на файл и нажми клавишу: кольцо покажет форматы, в которые его можно сконвертировать. Движки (FFmpeg, ImageMagick, Pandoc) скачиваются при первом использовании.")));
+            Toggle(T("Ctrl + right click opens the editors", "Ctrl + ПКМ открывает правку"), T("Crop a photo, trim audio, merge PDFs. Off: Ctrl + right click opens the usual ring", "Кроп фото, обрезка аудио, объединение PDF. Выключено: Ctrl + ПКМ открывает обычное кольцо"), () => settings.CtrlEdit, v => settings.CtrlEdit = v),
+            Toggle(T("Show the two pills beside the ring", "Показывать две плашки у кольца"), T("A reminder of the shortcuts; you can also click them or release the button over them", "Напоминание о сочетаниях; на них можно нажать или отпустить кнопку над ними"), () => settings.ModeChips, v => settings.ModeChips = v),
+            Info(T("How", "Как"), T("Point at a file, hold Shift or Ctrl and right-click: the ring shows the formats it can be converted to, or the editors for it. Engines (FFmpeg, ImageMagick, Pandoc) are downloaded on first use.", "Наведи на файл, зажми Shift или Ctrl и нажми ПКМ: кольцо покажет форматы для конвертации или редакторы для этого файла. Движки (FFmpeg, ImageMagick, Pandoc) скачиваются при первом использовании.")));
 
         Section(T("Look", "Вид"));
         Card(
             Combo(T("Theme", "Тема"), [("system", T("System", "Как в системе")), ("dark", T("Dark", "Тёмная")), ("light", T("Light", "Светлая"))], () => settings.Theme, v => settings.Theme = v),
             Scale(T("Ring size", "Размер кольца")),
             Toggle(T("Blurred background", "Размытый фон"), T("Frosted-glass look behind the sectors", "Эффект матового стекла за секторами"), () => settings.Acrylic, v => settings.Acrylic = v),
-            Toggle(T("Number hints (1–9)", "Подсказки с цифрами (1–9)"), T("Digit keys and the mouse wheel also pick sectors", "Цифры и колесо мыши тоже выбирают сектора"), () => settings.ShowHints, v => settings.ShowHints = v),
             Toggle(T("Animations", "Анимации"), null, () => settings.Animations, v => settings.Animations = v));
 
         _page.Children.Add(new Expander

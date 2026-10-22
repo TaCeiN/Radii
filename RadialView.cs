@@ -8,7 +8,7 @@ using System.Windows.Shapes;
 namespace Radii;
 
 /// <param name="Backdrop">Screenshot of what is behind the ring; blurred inside the sectors when set.</param>
-internal sealed record ViewOptions(bool ShowHints = true, bool Animations = true, ImageSource? Backdrop = null);
+internal sealed record ViewOptions(bool Animations = true, ImageSource? Backdrop = null);
 
 /// <summary>The ring itself: annular sectors with a Fluent glyph each and a label disc in the middle.</summary>
 internal sealed class RadialView : Canvas
@@ -117,17 +117,6 @@ internal sealed class RadialView : Canvas
             SetTop(glyph, middle.Y - glyph.DesiredSize.Height / 2);
             Children.Add(glyph);
             _glyphs[i] = glyph;
-
-            if (_options.ShowHints && i < 9)
-            {
-                // Number keys 1-9 pick a sector; the digit sits on the outer rim.
-                var hint = new TextBlock { Text = (i + 1).ToString(), FontFamily = TextFont, FontSize = 9, Foreground = theme.TextMuted, IsHitTestVisible = false };
-                hint.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-                var rim = PointAt(Outer - 11, i * step);
-                SetLeft(hint, rim.X - hint.DesiredSize.Width / 2);
-                SetTop(hint, rim.Y - hint.DesiredSize.Height / 2);
-                Children.Add(hint);
-            }
         }
 
         _label = new TextBlock

@@ -27,6 +27,9 @@ internal sealed class RadialWindow : Window
     private RECT _bounds;
     private RECT _ringRect;
     private RECT[] _flyoutRects = [];
+    private ChipsWindow? _chips;
+    private RECT _chipsRect;
+    private string _summary = "";
     private int _flyoutToken;
     private double _dpiScale = 1;
     private readonly System.Windows.Threading.DispatcherTimer _awayTimer = new() { Interval = TimeSpan.FromMilliseconds(120) };
@@ -61,7 +64,7 @@ internal sealed class RadialWindow : Window
     /// <summary>Ring or any flyout. Called from the hook thread.</summary>
     public bool Contains(POINT pt)
     {
-        if (Inside(_bounds, pt))
+        if (Inside(_bounds, pt) || Inside(_chipsRect, pt))
             return true;
         foreach (var rect in _flyoutRects)
         {
@@ -73,13 +76,165 @@ internal sealed class RadialWindow : Window
 
     private static bool Inside(RECT r, POINT pt) => pt.X >= r.Left && pt.X < r.Right && pt.Y >= r.Top && pt.Y < r.Bottom;
 
-    public void ShowAt(IReadOnlyList<RadialItem> items, Theme theme, string summary, POINT cursor, ShellContext context)
+    private sealed record RingState(IReadOnlyList<RadialItem> Items, string Summary, RingMode Mode, bool Sub);
+
+    private static readonly RingMode[] ModeOrder = [RingMode.Normal, RingMode.Convert, RingMode.Edit];
+
+    private Detected? _source;
+    private ShellContext? _rootContext;
+    private RingState? _current;
+    private readonly List<RingState> _history = [];
+
+    /// <summary>A fresh ring opened by the mouse: remembers what it was opened on, so that the pills and keys can switch the ring.</summary>
+    public void ShowTop(IReadOnlyList<RadialItem> items, Theme theme, string summary, POINT cursor, ShellContext context, RingMode mode, Detected detected)
     {
-        HideMenu(false);
+        _source = detected;
+        _rootContext = context;
+        _history.Clear();
+        ShowAt(items, theme, summary, cursor, context, mode, sub: false, direction: 0);
+    }
+
+    /// <summary>A sector opened a second-level ring (formats of a family): it replaces this ring, "Back" returns.</summary>
+    public void ShowSub(IReadOnlyList<RadialItem> items, string summary, ShellContext context)
+    {
+        if (_current is { } current)
+            _history.Add(current);
+        ShowAt(items, _theme, summary, LastCursor, context, _current?.Mode ?? RingMode.Convert, sub: true, direction: 1);
+    }
+
+    private void GoBack()
+    {
+        if (_history.Count == 0)
+            return;
+        var state = _history[^1];
+        _history.RemoveAt(_history.Count - 1);
+        ShowAt(state.Items, _theme, state.Summary, LastCursor, _rootContext ?? _context, state.Mode, state.Sub, direction: -1);
+    }
+
+    private IReadOnlyList<RingMode> AvailableModes()
+    {
+        var modes = new List<RingMode> { RingMode.Normal };
+        if (_source is { } source && source.Paths.Count > 0)
+        {
+            var chips = ModeChips.For(source.Paths);
+            if (chips.Convert)
+                modes.Add(RingMode.Convert);
+            if (chips.Edit)
+                modes.Add(RingMode.Edit);
+        }
+        return modes;
+    }
+
+    /// <summary>Swaps this ring for the ring of another mode on the same spot (the pills and Left / Right keys).</summary>
+    private void SwitchTo(RingMode mode)
+    {
+        if (_source is not { } source || _current is not { } current || mode == current.Mode && !current.Sub)
+            return;
+        var items = mode switch
+        {
+            RingMode.Convert => Converters.ConvertMenu.For(source.Paths),
+            RingMode.Edit => Editors.EditorMenu.Ring(source.Paths),
+            _ => Menus.For(source),
+        };
+        if (items.Count == 0)
+            return;
+        var direction = Math.Sign(Array.IndexOf(ModeOrder, mode) - Array.IndexOf(ModeOrder, current.Mode));
+        if (direction == 0)
+            direction = -1;
+        _history.Clear();
+        ShowAt(items, _theme, Menus.Summary(source), LastCursor, _rootContext ?? _context, mode, sub: false, direction);
+    }
+
+    /// <summary>Left / Right (and A / D): the neighbouring ring mode; inside a second-level ring Left goes back. False when there is nothing to switch to.</summary>
+    private bool StepMode(int direction)
+    {
+        if (_current is not { } current)
+            return false;
+        if (current.Sub)
+        {
+            if (direction < 0)
+            {
+                GoBack();
+                return true;
+            }
+        }
+        var modes = AvailableModes();
+        if (modes.Count < 2)
+            return false;
+        var index = modes.ToList().IndexOf(current.Mode);
+        var next = modes[(Math.Max(index, 0) + direction + modes.Count) % modes.Count];
+        SwitchTo(next);
+        return true;
+    }
+
+    private List<ChipSpec> BuildChips(RingMode mode, bool sub)
+    {
+        var specs = new List<ChipSpec>();
+        if (!Settings.Current.ModeChips || _source is null)
+            return specs;
+        var iconOf = new Dictionary<RingMode, (string Glyph, string Name)>
+        {
+            [RingMode.Normal] = ("\uE80F", Menus.T("Menu", "Меню")),
+            [RingMode.Convert] = ("\uE8AB", Menus.T("Convert", "Конвертер")),
+            [RingMode.Edit] = ("\uE70F", Menus.T("Edit", "Правка")),
+        };
+        var modes = AvailableModes().ToList();
+        if (modes.Count < 2)
+            return specs;
+        var index = Math.Max(0, modes.IndexOf(mode));
+        var previous = modes[(index - 1 + modes.Count) % modes.Count];
+        var next = modes[(index + 1) % modes.Count];
+
+        ChipSpec Make(RingMode target, string keys, bool left = false) =>
+            new(target, iconOf[target].Name, keys, iconOf[target].Glyph, () => SwitchTo(target), left);
+
+        // The hints are the keys that do the same: Left / A and Right / D (the mouse shortcuts do nothing while the ring is open).
+        if (sub)
+        {
+            specs.Add(new ChipSpec(null, Menus.T("Back", "Назад"), "←  A", "\uE72B", GoBack, HintLeft: true));
+            specs.Add(Make(next, "D  →"));
+        }
+        else if (previous == next)
+        {
+            specs.Add(Make(next, "←  →"));
+        }
+        else
+        {
+            specs.Add(Make(previous, "←  A", left: true));
+            specs.Add(Make(next, "D  →"));
+        }        return specs;
+    }
+
+    /// <param name="direction">0: the ring opens from nothing. Otherwise it replaces a visible ring: -1 / +1 turn the old one out to the left / right.</param>
+    private void ShowAt(IReadOnlyList<RadialItem> items, Theme theme, string summary, POINT cursor, ShellContext context, RingMode mode, bool sub, int direction)
+    {
+        var settings = Settings.Current;
+        var transition = direction != 0 && IsVisible && _view is not null && settings.Animations;
+        if (!transition)
+        {
+            HideMenu(false);
+            _current = new RingState(items, summary, mode, sub);
+            BuildRing(items, theme, summary, cursor, context, mode, sub, direction, transition: false);
+            return;
+        }
+        // Replacing a visible ring: the old one stays on screen as a ghost and turns out while the new one turns in.
+        _current = new RingState(items, summary, mode, sub);
+        var ghost = Content as UIElement;
+        Content = null;
+        HideMenu(true, keepWindow: true);
+        BuildRing(items, theme, summary, cursor, context, mode, sub, direction, transition: true, ghost);
+    }
+    private int _switchToken;
+    private ImageSource? _backdrop;
+    private (int X, int Y, int Side) _backdropKey;
+
+    private void BuildRing(IReadOnlyList<RadialItem> items, Theme theme, string summary, POINT cursor, ShellContext context, RingMode mode, bool sub, int direction, bool transition, UIElement? ghost = null)
+    {
+        var settings = Settings.Current;
         LastCursor = cursor;
         _theme = theme;
         _context = context;
-        var settings = Settings.Current;
+        _summary = summary;
 
         // Physical pixels throughout: the process is per-monitor DPI aware.
         var monitor = MonitorFromPoint(cursor, 2);
@@ -94,9 +249,23 @@ internal sealed class RadialWindow : Window
         var x = Math.Clamp(cursor.X - side / 2, info.rcWork.Left, Math.Max(info.rcWork.Left, info.rcWork.Right - side));
         var y = Math.Clamp(cursor.Y - side / 2, info.rcWork.Top, Math.Max(info.rcWork.Top, info.rcWork.Bottom - side));
 
-        // Taken before the window exists, so the screenshot shows what is really behind the ring.
-        var backdrop = theme.Acrylic ? Backdrop.Grab(x, y, side, side) : null;
-        var view = new RadialView(items, theme, summary, new ViewOptions(settings.ShowHints, settings.Animations, backdrop));
+        // Taken before the window exists, so the screenshot shows what is really behind the ring. A ring that replaces another one
+        // on the same spot reuses that screenshot (a new one would show the old ring).
+        ImageSource? backdrop = null;
+        if (theme.Acrylic)
+        {
+            if (transition && _backdrop is not null && _backdropKey == (x, y, side))
+            {
+                backdrop = _backdrop;
+            }
+            else
+            {
+                backdrop = Backdrop.Grab(x, y, side, side);
+                _backdrop = backdrop;
+                _backdropKey = (x, y, side);
+            }
+        }
+        var view = new RadialView(items, theme, summary, new ViewOptions(settings.Animations, backdrop));
         view.MouseMove += (_, e) =>
         {
             var index = view.HitTest(e.GetPosition(view));
@@ -117,11 +286,22 @@ internal sealed class RadialWindow : Window
         view.MouseLeftButtonUp += (_, e) => Activate(view.ItemAt(view.HitTest(e.GetPosition(view))));
         view.MouseRightButtonDown += (_, _) => HideMenu();
         _view = view;
-        Content = new Viewbox { Stretch = Stretch.Uniform, Child = view };
+        var box = new Viewbox { Stretch = Stretch.Uniform, Child = view };
         Width = Height = RadialView.Size * ringScale;
-
-        BeginAnimation(OpacityProperty, null);
-        Opacity = 0;
+        if (transition && ghost is not null)
+        {
+            var host = new Grid();
+            host.Children.Add(ghost);
+            host.Children.Add(box);
+            Content = host;
+            TurnOut(ghost, host, direction);
+        }
+        else
+        {
+            Content = box;
+            BeginAnimation(OpacityProperty, null);
+            Opacity = 0;
+        }
         if (!IsVisible)
             Show();
         var handle = new WindowInteropHelper(this).Handle;
@@ -130,11 +310,55 @@ internal sealed class RadialWindow : Window
         var pad = (int)Math.Round(RadialView.Pad * ringScale * dpiScale);
         _ringRect = new RECT { Left = _bounds.Left + pad, Top = _bounds.Top + pad, Right = _bounds.Right - pad, Bottom = _bounds.Bottom - pad };
 
+        var specs = BuildChips(mode, sub);
+        if (specs.Count > 0)
+        {
+            _chips = new ChipsWindow(theme, specs, spec => spec.Activate());
+            _chips.ShowNear(_ringRect, info.rcWork, dpiScale, settings.Animations);
+            _chipsRect = _chips.Bounds;
+        }
+
         _hook.MenuVisible = true;
         _awayTimer.Start();
-        Animate(view, settings.Animations);
+        if (transition)
+            TurnIn(box, direction);
+        else
+            Animate(view, settings.Animations);
     }
 
+    /// <summary>The old ring turns out: a little rotation away from <paramref name="direction"/>, shrinks and fades; then it is removed.</summary>
+    private static void TurnOut(UIElement ghost, Grid host, int direction)
+    {
+        ghost.IsHitTestVisible = false;
+        var rotate = new RotateTransform(0);
+        var scale = new ScaleTransform(1, 1);
+        ghost.RenderTransformOrigin = new Point(0.5, 0.5);
+        ghost.RenderTransform = new TransformGroup { Children = { scale, rotate } };
+        var duration = TimeSpan.FromMilliseconds(190);
+        var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
+        rotate.BeginAnimation(RotateTransform.AngleProperty, new DoubleAnimation(0, -direction * 32, duration) { EasingFunction = ease });
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(1, 0.82, duration) { EasingFunction = ease });
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(1, 0.82, duration) { EasingFunction = ease });
+        var fade = new DoubleAnimation(1, 0, duration);
+        fade.Completed += (_, _) => host.Children.Remove(ghost);
+        ghost.BeginAnimation(OpacityProperty, fade);
+    }
+
+    /// <summary>The new ring turns in from the opposite side with a soft spring.</summary>
+    private static void TurnIn(UIElement box, int direction)
+    {
+        var rotate = new RotateTransform(direction * 32);
+        var scale = new ScaleTransform(0.82, 0.82);
+        box.RenderTransformOrigin = new Point(0.5, 0.5);
+        box.RenderTransform = new TransformGroup { Children = { scale, rotate } };
+        var duration = TimeSpan.FromMilliseconds(300);
+        var spring = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.35 };
+        var smooth = new CubicEase { EasingMode = EasingMode.EaseOut };
+        rotate.BeginAnimation(RotateTransform.AngleProperty, new DoubleAnimation(direction * 32, 0, duration) { EasingFunction = smooth });
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.82, 1, duration) { EasingFunction = spring });
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.82, 1, duration) { EasingFunction = spring });
+        box.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160)));
+    }
     private void CloseIfAway()
     {
         if (!IsVisible)
@@ -147,6 +371,8 @@ internal sealed class RadialWindow : Window
         var nearest = DistanceTo(_ringRect, cursor);
         foreach (var flyout in _flyouts)
             nearest = Math.Min(nearest, DistanceTo(flyout.VisibleBounds, cursor));
+        if (_chips is not null)
+            nearest = Math.Min(nearest, DistanceTo(_chipsRect, cursor));
         if (nearest > limit)
             HideMenu();
     }
@@ -159,6 +385,7 @@ internal sealed class RadialWindow : Window
     }
 
     private int _hideGeneration;
+    private bool _chosenClose;
 
     // --- hover-to-open for the extensions sector ---
     private readonly System.Windows.Threading.DispatcherTimer _dwell = new() { Interval = TimeSpan.FromMilliseconds(350) };
@@ -212,20 +439,38 @@ internal sealed class RadialWindow : Window
 
     public void HideMenu() => HideMenu(true);
 
-    private void HideMenu(bool animate)
+    /// <param name="keepWindow">The ring is being replaced by another one: close the rest (pills, flyouts) but leave the window and its content alone.</param>
+    private void HideMenu(bool animate, bool keepWindow = false)
     {
+        if (!keepWindow)
+        {
+            _current = null;
+            _history.Clear();
+            _switchToken++; // a ring that was about to slide in is cancelled
+            _hook.MenuVisible = false;
+        }
         _awayTimer.Stop();
         _dwell.Stop();
         _dismiss.Stop();
-        _hook.MenuVisible = false;
         var generation = ++_hideGeneration;
         animate &= Settings.Current.Animations && IsVisible;
+        if (_chips is { } chips)
+        {
+            _chips = null;
+            _chipsRect = default;
+            if (animate)
+                chips.FadeClose();
+            else
+                chips.Close();
+        }
         CloseFlyouts(0, animate);
         _flyoutToken++;
         _session?.Dispose();
         _session = null;
         var view = _view;
         _view = null;
+        if (keepWindow)
+            return;
         if (!animate || view is null)
         {
             if (IsVisible)
@@ -238,10 +483,14 @@ internal sealed class RadialWindow : Window
         var scale = view.RenderTransform as ScaleTransform ?? new ScaleTransform(1, 1);
         view.RenderTransformOrigin = new Point(0.5, 0.5);
         view.RenderTransform = scale;
-        var duration = TimeSpan.FromMilliseconds(130);
-        var ease = new QuadraticEase { EasingMode = EasingMode.EaseIn };
-        scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(scale.ScaleX, 0.85, duration) { EasingFunction = ease });
-        scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(scale.ScaleY, 0.85, duration) { EasingFunction = ease });
+        // A picked sector swells a little as the ring fades (a confirmation); a dismissed ring shrinks away.
+        var chosen = _chosenClose;
+        _chosenClose = false;
+        var duration = TimeSpan.FromMilliseconds(chosen ? 170 : 130);
+        var target = chosen ? 1.1 : 0.85;
+        var ease = new QuadraticEase { EasingMode = chosen ? EasingMode.EaseOut : EasingMode.EaseIn };
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(scale.ScaleX, target, duration) { EasingFunction = ease });
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(scale.ScaleY, target, duration) { EasingFunction = ease });
         var fade = new DoubleAnimation(Opacity, 0, duration);
         fade.Completed += (_, _) =>
         {
@@ -258,6 +507,11 @@ internal sealed class RadialWindow : Window
     {
         if (_view is not { } view || !IsVisible)
             return;
+        if (_chips?.HitChip(pt) is { } chip)
+        {
+            chip.Activate();
+            return;
+        }
         // Straight from the window rectangle: the ring is scaled uniformly, so view units = pixels * Size / window width.
         var width = _bounds.Right - _bounds.Left;
         if (width <= 0)
@@ -291,17 +545,19 @@ internal sealed class RadialWindow : Window
             case 0x0D:
                 Activate(view.ItemAt(view.Hovered));
                 break;
-            case 0x25 or 0x26:
+            case 0x25 or 0x41: // Left, A: previous ring mode (or back out of a second-level ring)
+                if (!StepMode(-1) && vk == 0x25)
+                    HandleWheel(1);
+                break;
+            case 0x27 or 0x44: // Right, D: next ring mode
+                if (!StepMode(1) && vk == 0x27)
+                    HandleWheel(-1);
+                break;
+            case 0x26:
                 HandleWheel(1);
                 break;
-            case 0x27 or 0x28:
+            case 0x28:
                 HandleWheel(-1);
-                break;
-            case >= 0x31 and <= 0x39:
-                Activate(view.ItemAt((int)vk - 0x31));
-                break;
-            case >= 0x61 and <= 0x69:
-                Activate(view.ItemAt((int)vk - 0x61));
                 break;
         }
     }
@@ -315,7 +571,14 @@ internal sealed class RadialWindow : Window
             OpenExtensions();
             return;
         }
+        if (item.Navigates)
+        {
+            // Opens another ring: the menu stays, the ring turns over.
+            item.Run();
+            return;
+        }
         Settings.RecordUse(item.Id);
+        _chosenClose = true;
         HideMenu();
         // Let the windows disappear and Explorer settle before the shortcut is sent.
         _ = Task.Run(async () =>

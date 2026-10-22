@@ -22,7 +22,7 @@ internal sealed class Tray : IDisposable
         update.Click += (_, _) => app.Dispatcher.BeginInvoke(async () => await Updates.Updater.CheckNowAsync());
         var exit = new System.Windows.Forms.ToolStripMenuItem(Menus.T("Exit", "Выход"));
         exit.Click += (_, _) => app.Dispatcher.BeginInvoke(() => app.Shutdown());
-        var hint = new System.Windows.Forms.ToolStripMenuItem(Settings.Current.ShiftConvert ? Menus.T("Shift + right click: converter", "Shift + ПКМ: конвертер") : Menus.T("Shift + right click: native menu", "Shift + ПКМ: обычное меню")) { Enabled = false };
+        var hint = new System.Windows.Forms.ToolStripMenuItem(Menus.T("Shift + RMB: converter · Ctrl + RMB: editors", "Shift + ПКМ: конвертер · Ctrl + ПКМ: правка")) { Enabled = false };
 
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.AddRange([settings, _toggle, update, hint, new System.Windows.Forms.ToolStripSeparator(), exit]);

@@ -32,7 +32,6 @@ internal sealed class Settings
     /// <summary>auto | ru | en</summary>
     public string Language { get; set; } = "auto";
     public double RingScale { get; set; } = 1.0;
-    public bool ShowHints { get; set; } = true;
     public bool Animations { get; set; } = true;
     public bool Acrylic { get; set; } = true;
     /// <summary>Menu opens on press; releasing over a sector picks it. Off: menu opens on release and needs a click.</summary>
@@ -42,8 +41,10 @@ internal sealed class Settings
     public bool CheckUpdates { get; set; } = true;
     /// <summary>Shift + right click opens the converter ring (off: it opens the native menu, as before).</summary>
     public bool ShiftConvert { get; set; } = true;
-    /// <summary>Key (optionally with Ctrl/Alt/Shift/Win, e.g. "Ctrl+Alt+C") that opens the converter ring for the item under the pointer; empty disables it.</summary>
-    public string ConvertHotkey { get; set; } = "F9";
+    /// <summary>Ctrl + right click opens the ring of editors (off: Ctrl + right click opens the usual ring).</summary>
+    public bool CtrlEdit { get; set; } = true;
+    /// <summary>Pills beside the ring that remind of Shift / Ctrl + right click and can be clicked.</summary>
+    public bool ModeChips { get; set; } = true;
     public List<string> HiddenItems { get; set; } = [];
     public List<CustomCommand> Commands { get; set; } = [];
     public Dictionary<string, int> Usage { get; set; } = [];

@@ -95,7 +95,7 @@ internal static class ConvertMenu
             {
                 var sub = children.Select(c => new Offer(c, converter is MoreConverter more ? more.ConverterFor(c) : converter)).ToList();
                 items.Add(new RadialItem("conv:" + format.Id, format.Glyph ?? format.Label, format.Caption,
-                    () => ConvertHost.Show?.Invoke(WithBack(Items(sub, paths, format.Caption, context)), format.Caption, context)));
+                    () => ConvertHost.Show?.Invoke(WithBack(Items(sub, paths, format.Caption, context)), format.Caption, context), Navigates: true));
             }
             else
             {

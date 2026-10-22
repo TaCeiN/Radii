@@ -12,62 +12,56 @@ internal sealed class MenuController
     private int _pressId;
     private bool _shown;
     private IntPtr _root;
-    private bool _convert;
+    private RingMode _mode;
 
     public MenuController(RadialWindow window) => _window = window;
 
-    /// <param name="convert">Shift + right click: the ring offers conversions instead of the usual actions.</param>
-    public void Press(POINT point, IntPtr root, bool convert)
+    /// <param name="mode">Shift + right click: the ring of conversions; Ctrl + right click: the ring of editors; otherwise the usual ring.</param>
+    public void Press(POINT point, IntPtr root, RingMode mode)
     {
         _pressId++;
         _shown = false;
         _root = root;
-        _convert = convert;
+        _mode = mode;
         if (Settings.Current.GestureMode)
-            _ = ShowAsync(_pressId, point, root, convert);
-    }
-
-    /// <summary>The converter hotkey: no button is held, so the ring simply waits for a click.</summary>
-    public void OpenConverter(POINT point, IntPtr root)
-    {
-        _pressId++;
-        _shown = false;
-        _ = ShowAsync(_pressId, point, root, convert: true);
+            _ = ShowAsync(_pressId, point, root, mode);
     }
 
     public void Release(POINT point)
     {
         if (!Settings.Current.GestureMode)
-            _ = ShowAsync(_pressId, point, _root, _convert);
+            _ = ShowAsync(_pressId, point, _root, _mode);
         else if (_shown)
             _window.ReleaseAt(point);
         // Released before the ring appeared: it opens in click mode and waits for a click.
     }
 
-    private async Task ShowAsync(int id, POINT point, IntPtr root, bool convert)
+    private async Task ShowAsync(int id, POINT point, IntPtr root, RingMode mode)
     {
         try
         {
             var detected = await ContextDetector.DetectAsync(point, root);
             if (id != _pressId)
                 return;
-            if (convert)
+            var context = new ShellContext(detected.Paths, detected.FolderPath, root);
+            if (mode != RingMode.Normal)
             {
-                var items = detected.Paths.Count > 0 ? Converters.ConvertMenu.For(detected.Paths) : [];
+                var convert = mode == RingMode.Convert;
+                var items = detected.Paths.Count == 0 ? [] : convert ? Converters.ConvertMenu.For(detected.Paths) : Editors.EditorMenu.Ring(detected.Paths);
                 if (items.Count == 0)
                 {
-                    Toast.Show(Menus.T("Converter", "Конвертер"), detected.HasSelection && detected.Paths.Count == 0
+                    Toast.Show(convert ? Menus.T("Converter", "Конвертер") : Menus.T("Editors", "Правка"), detected.HasSelection && detected.Paths.Count == 0
                         ? Menus.T("Could not tell which files are selected", "Не удалось определить выбранные файлы")
                         : detected.HasSelection
-                            ? Menus.T("Nothing to convert this to", "Для этого типа нет вариантов конвертации")
+                            ? convert ? Menus.T("Nothing to convert this to", "Для этого типа нет вариантов конвертации") : Menus.T("No editor for this type yet", "Для этого типа пока нет редактора")
                             : Menus.T("Point at a file first", "Наведи курсор на файл"));
                     return;
                 }
-                _window.ShowAt(items, Theme.Current(), Menus.Summary(detected), point, new ShellContext(detected.Paths, detected.FolderPath, root));
+                _window.ShowTop(items, Theme.Current(), Menus.Summary(detected), point, context, mode, detected);
                 _shown = true;
                 return;
             }
-            _window.ShowAt(Menus.For(detected), Theme.Current(), Menus.Summary(detected), point, new ShellContext(detected.Paths, detected.FolderPath, root));
+            _window.ShowTop(Menus.For(detected), Theme.Current(), Menus.Summary(detected), point, context, RingMode.Normal, detected);
             _shown = true;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)

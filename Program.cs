@@ -20,6 +20,8 @@ internal static class Program
         // Diagnostics that need no hook and no tray: render previews, dump a shell menu.
         if (args.Length >= 2 && args[0] == "--snapshot")
             return Snapshot.Render(args[1]);
+        if (args.Length >= 2 && args[0] == "--snapshot-chips")
+            return Snapshot.RenderChips(args[1]);
         if (args.Length >= 3 && args[0] == "--snapshot-flyout")
             return Snapshot.RenderFlyout(args[1], args[2]);
         if (args.Length >= 2 && args[0] == "--snapshot-settings")
@@ -62,6 +64,37 @@ internal static class Program
             timer.Start();
             return test.Run();
         }
+        if (args.Length >= 4 && args[0] == "--snapshot-editor")
+        {
+            // --snapshot-editor out.png crop|audio|pdf <path>...   renders the mini editor offscreen
+            var snapshotApp = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown, ThemeMode = ThemeMode.System };
+            var code = 2;
+            if (Editors.EditorMenu.ByName(args[2]) is { } editor)
+                code = editor.Create(args[3..]).Render(args[1]);
+            snapshotApp.Shutdown();
+            return code;
+        }
+        if (args.Length >= 4 && args[0] == "--editor-show")
+        {
+            // --editor-show out.png <editorName> <path>...   shows the editor on screen and captures it with the real backdrop
+            var showApp = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown, ThemeMode = ThemeMode.System };
+            var code = 2;
+            if (Editors.EditorMenu.ByName(args[2]) is { } editor)
+                code = editor.Create(args[3..]).ShowAndCapture(args[1]);
+            showApp.Shutdown();
+            return code;
+        }
+        if (args.Length >= 5 && args[0] == "--editor-save")
+        {
+            // --editor-save out.txt crop|audio|pdf "spec" <path>...   saves with the given choices, no UI interaction
+            var saveApp = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown, ThemeMode = ThemeMode.System };
+            var result = Editors.EditorMenu.ByName(args[2]) is { } editor
+                ? editor.Create(args[4..]).SaveForTest(args[3])
+                : "no such editor";
+            File.WriteAllText(args[1], result);
+            saveApp.Shutdown();
+            return 0;
+        }
         if (args.Length >= 3 && args[0] == "--snapshot-convert")
             return Snapshot.RenderConvert(args[1], args[2..]);
         if (args.Length >= 3 && args[0] == "--shell-dump")
@@ -94,12 +127,11 @@ internal static class Program
         hook.IsInsideMenu = window.Contains;
         hook.DismissRequested += window.HideMenu;
         hook.Pressed += controller.Press;
-        hook.ConvertRequested += controller.OpenConverter;
         hook.ShiftConvert = Settings.Current.ShiftConvert;
-        hook.SetHotkey(Settings.Current.ConvertHotkey);
+        hook.CtrlEdit = Settings.Current.CtrlEdit;
         Converters.ConvertHost.Show = (items, summary, context) => app.Dispatcher.BeginInvoke(() =>
         {
-            window.ShowAt(items, Theme.Current(), summary, window.LastCursor, context);
+            window.ShowSub(items, summary, context);
         });
         hook.Released += controller.Release;
         hook.Wheel += window.HandleWheel;
@@ -108,7 +140,7 @@ internal static class Program
         {
             hook.Enabled = Settings.Current.Enabled;
             hook.ShiftConvert = Settings.Current.ShiftConvert;
-            hook.SetHotkey(Settings.Current.ConvertHotkey);
+            hook.CtrlEdit = Settings.Current.CtrlEdit;
         };
 
         using var tray = new Tray(app);

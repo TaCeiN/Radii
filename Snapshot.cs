@@ -31,7 +31,7 @@ internal static class Snapshot
             var theme = new Theme(dark, Theme.SystemAccent(), acrylic: true);
             foreach (var (context, hover) in contexts)
             {
-                var view = new RadialView(Menus.For(context), theme, Menus.Summary(context), new ViewOptions(true, false, backdrop));
+                var view = new RadialView(Menus.For(context), theme, Menus.Summary(context), new ViewOptions(false, backdrop));
                 view.SetHover(hover);
                 sheet.Children.Add(new Grid { Background = new ImageBrush(backdrop), Children = { view } });
             }
@@ -50,11 +50,37 @@ internal static class Snapshot
         {
             var backdrop = Gradient(dark);
             var theme = new Theme(dark, Theme.SystemAccent(), acrylic: true);
-            var view = new RadialView(items, theme, System.IO.Path.GetFileName(files[0]), new ViewOptions(true, false, backdrop));
+            var view = new RadialView(items, theme, System.IO.Path.GetFileName(files[0]), new ViewOptions(false, backdrop));
             view.SetHover(1);
             sheet.Children.Add(new Grid { Background = new ImageBrush(backdrop), Children = { view } });
         }
         return Save(sheet, RadialView.Size * 2, RadialView.Size, path);
+    }
+
+    /// <summary>The usual ring with the two pills under it, dark and light: <c>--snapshot-chips out.png</c></summary>
+    public static int RenderChips(string path)
+    {
+        var context = new Detected(Surface.Explorer, 1, @"C:\Users\me\Documents", [@"C:\Users\me\Documents\photo.png"]);
+        var sheet = new UniformGrid { Columns = 2, Rows = 1 };
+        foreach (var dark in new[] { true, false })
+        {
+            var backdrop = Gradient(dark);
+            var theme = new Theme(dark, Theme.SystemAccent(), acrylic: true);
+            var view = new RadialView(Menus.For(context), theme, Menus.Summary(context), new ViewOptions(false, backdrop));
+            view.SetHover(1);
+            var specs = new List<ChipSpec>
+            {
+                new(RingMode.Convert, Menus.T("Convert", "Конвертер"), Menus.T("Shift + RMB", "Shift + ПКМ"), "", () => { }),
+                new(RingMode.Edit, Menus.T("Edit", "Правка"), Menus.T("Ctrl + RMB", "Ctrl + ПКМ"), "", () => { }),
+            };
+            var chips = new ChipsPanel(theme, specs) { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, 4) };
+            chips.SetHover(dark ? null : specs[1]);
+            var stack = new Grid { Background = new ImageBrush(backdrop) };
+            stack.Children.Add(view);
+            stack.Children.Add(chips);
+            sheet.Children.Add(stack);
+        }
+        return Save(sheet, RadialView.Size * 2, RadialView.Size + 40, path);
     }
 
     public static int RenderFlyout(string path, string target)

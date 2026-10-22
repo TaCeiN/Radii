@@ -9,7 +9,8 @@ namespace Radii;
 /// A right click on the item view of File Explorer or the desktop is swallowed completely (press and release):
 /// Explorer then never starts a drag or rubber band, and the native menu never opens. The UI thread is told
 /// about both halves of the click. While the menu is open, the wheel and a few keys are swallowed too.
-/// Shift + right click bypasses all of this and opens the native menu.
+/// Shift + right click asks for the converter ring and Ctrl + right click for the editors ring (each can be turned off;
+/// with Shift switched off the click goes to the native menu).
 /// </summary>
 internal sealed class InputHook : IDisposable
 {
@@ -19,7 +20,6 @@ internal sealed class InputHook : IDisposable
     private readonly HookProc _mouseProc;
     private readonly HookProc _keyboardProc;
     private readonly HashSet<uint> _swallowedKeys = [];
-    private readonly HashSet<uint> _swallowedHotkeys = [];
     private Thread? _thread;
     private uint _threadId;
     private IntPtr _mouseHook;
@@ -34,10 +34,8 @@ internal sealed class InputHook : IDisposable
         _keyboardProc = KeyboardProc;
     }
 
-    /// <summary>The bool is true for Shift + right click, which opens the converter ring.</summary>
-    public event Action<POINT, IntPtr, bool>? Pressed;
-    /// <summary>The converter hotkey was pressed over a file view.</summary>
-    public event Action<POINT, IntPtr>? ConvertRequested;
+    /// <summary>Which ring was asked for: Shift = converter, Ctrl = editors, neither = the usual ring.</summary>
+    public event Action<POINT, IntPtr, RingMode>? Pressed;
     public event Action<POINT>? Released;
     public event Action? DismissRequested;
     public event Action<int>? Wheel;
@@ -47,49 +45,8 @@ internal sealed class InputHook : IDisposable
     public volatile bool MenuVisible;
     /// <summary>Shift + right click is the converter instead of the native-menu bypass.</summary>
     public volatile bool ShiftConvert = true;
-
-    private (uint Vk, bool Ctrl, bool Alt, bool Shift, bool Win)? _hotkey;
-
-    /// <summary>Parses "F9" or "Ctrl+Alt+C"; null or empty disables the hotkey.</summary>
-    public void SetHotkey(string? text)
-    {
-        _hotkey = ParseHotkey(text);
-    }
-
-    private static (uint, bool, bool, bool, bool)? ParseHotkey(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return null;
-        bool ctrl = false, alt = false, shift = false, win = false;
-        uint vk = 0;
-        foreach (var part in text.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            switch (part.ToLowerInvariant())
-            {
-                case "ctrl" or "control": ctrl = true; break;
-                case "alt": alt = true; break;
-                case "shift": shift = true; break;
-                case "win" or "windows": win = true; break;
-                default:
-                    if (part.Length == 1 && char.IsAsciiLetterOrDigit(part[0]))
-                        vk = char.ToUpperInvariant(part[0]);
-                    else if (part.Length is 2 or 3 && (part[0] is 'F' or 'f') && int.TryParse(part[1..], out var f) && f is >= 1 and <= 24)
-                        vk = (uint)(0x6F + f);
-                    else
-                        return null;
-                    break;
-            }
-        }
-        return vk == 0 ? null : (vk, ctrl, alt, shift, win);
-    }
-
-    private bool HotkeyMatches(uint vk)
-    {
-        if (_hotkey is not { } h || vk != h.Vk)
-            return false;
-        static bool Down(int key) => (GetAsyncKeyState(key) & 0x8000) != 0;
-        return Down(0x11) == h.Ctrl && Down(0x12) == h.Alt && Down(VK_SHIFT) == h.Shift && (Down(0x5B) || Down(0x5C)) == h.Win;
-    }
+    /// <summary>Ctrl + right click is the ring of editors (off: Ctrl changes nothing).</summary>
+    public volatile bool CtrlEdit = true;
 
     /// <summary>Evaluated on the hook thread: is this physical point inside the ring window?</summary>
     public Func<POINT, bool>? IsInsideRing { get; set; }
@@ -174,11 +131,13 @@ internal sealed class InputHook : IDisposable
                 DismissIfOutside(pt);
                 _swallowUp = false;
                 var shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+                var ctrl = (GetAsyncKeyState(0x11) & 0x8000) != 0;
+                var mode = shift ? RingMode.Convert : ctrl && CtrlEdit ? RingMode.Edit : RingMode.Normal;
                 if (Enabled && (!shift || ShiftConvert) && ItemViewRoot(pt) is var root && root != IntPtr.Zero)
                 {
                     _swallowUp = true;
                     _root = root;
-                    _dispatcher.BeginInvoke(() => Pressed?.Invoke(pt, root, shift));
+                    _dispatcher.BeginInvoke(() => Pressed?.Invoke(pt, root, mode));
                     return true;
                 }
                 break;
@@ -203,7 +162,7 @@ internal sealed class InputHook : IDisposable
             try
             {
                 var data = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
-                if ((data.flags & LLKHF_INJECTED) == 0 && (HandleHotkey((int)wParam, data.vkCode) || (MenuVisible && HandleKey((int)wParam, data.vkCode))))
+                if ((data.flags & LLKHF_INJECTED) == 0 && MenuVisible && HandleKey((int)wParam, data.vkCode))
                     return (IntPtr)1;
             }
             catch
@@ -214,32 +173,15 @@ internal sealed class InputHook : IDisposable
         return CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
     }
 
-    /// <summary>The converter hotkey only counts over a file view of Explorer or the desktop, so typing elsewhere is never affected.</summary>
-    private bool HandleHotkey(int message, uint vk)
-    {
-        var down = message is WM_KEYDOWN or WM_SYSKEYDOWN;
-        if (!down)
-            return _swallowedHotkeys.Remove(vk);
-        if (!Enabled || !HotkeyMatches(vk))
-            return false;
-        if (_swallowedHotkeys.Contains(vk))
-            return true; // auto-repeat of the press that already opened the ring
-        GetCursorPos(out var pt);
-        var root = ItemViewRoot(pt);
-        if (root == IntPtr.Zero)
-            return false;
-        _swallowedHotkeys.Add(vk);
-        _dispatcher.BeginInvoke(() => ConvertRequested?.Invoke(pt, root));
-        return true;
-    }
-
-    /// <summary>Esc, Enter, arrows and digits belong to the menu while it is open; everything else goes to Explorer.</summary>
+    /// <summary>Esc, Enter and arrows belong to the menu while it is open; everything else goes to Explorer.</summary>
     private bool HandleKey(int message, uint vk)
     {
         var down = message is WM_KEYDOWN or WM_SYSKEYDOWN;
         if (!down)
             return _swallowedKeys.Remove(vk);
-        var ours = vk is 0x1B or 0x0D or (>= 0x25 and <= 0x28) or (>= 0x31 and <= 0x39) or (>= 0x61 and <= 0x69);
+        // A and D only without Ctrl / Alt, so that real shortcuts still work.
+        var plain = (GetAsyncKeyState(0x11) & 0x8000) == 0 && (GetAsyncKeyState(0x12) & 0x8000) == 0;
+        var ours = vk is 0x1B or 0x0D or (>= 0x25 and <= 0x28) || vk is 0x41 or 0x44 && plain;
         if (!ours)
             return false;
         _swallowedKeys.Add(vk);
