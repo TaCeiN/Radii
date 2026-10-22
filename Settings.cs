@@ -34,8 +34,6 @@ internal sealed class Settings
     public double RingScale { get; set; } = 1.0;
     public bool Animations { get; set; } = true;
     public bool Acrylic { get; set; } = true;
-    /// <summary>Menu opens on press; releasing over a sector picks it. Off: menu opens on release and needs a click.</summary>
-    public bool GestureMode { get; set; } = true;
     public bool SortByUsage { get; set; }
     /// <summary>Ask GitHub Releases for a newer version at start and once a day. Off: only the "Check for updates" button does.</summary>
     public bool CheckUpdates { get; set; } = true;

@@ -85,7 +85,6 @@ internal sealed class SettingsWindow : Window
 
         Section(T("Behaviour", "Поведение"));
         Card(
-            Toggle(T("Gesture mode", "Режим жеста"), T("Opens on press; release over a sector picks it. Off: opens on release, then click", "Открывается при нажатии; отпустить над сектором = выбрать. Выключено: открывается при отпускании, дальше клик"), () => settings.GestureMode, v => settings.GestureMode = v),
             Toggle(T("Sort sectors by usage", "Сортировать секторы по частоте"), T("The first sector keeps its place", "Первый сектор остаётся на месте"), () => settings.SortByUsage, v => settings.SortByUsage = v));
 
         Section(T("Converter and editors", "Конвертер и правка"));

@@ -3,14 +3,13 @@ using static Radii.Native;
 namespace Radii;
 
 /// <summary>
-/// Connects the hook to the ring. Gesture mode: the ring opens on press, and releasing the button over a sector picks it
-/// (a quick click without moving leaves the ring open for a normal click). Otherwise the ring opens on release.
+/// Connects the hook to the ring. The ring opens when the right button is released and waits for a click: there is no
+/// press-drag-release gesture, so a ring that appears under the cursor next to a screen edge never picks a sector by itself.
 /// </summary>
 internal sealed class MenuController
 {
     private readonly RadialWindow _window;
     private int _pressId;
-    private bool _shown;
     private IntPtr _root;
     private RingMode _mode;
 
@@ -20,21 +19,11 @@ internal sealed class MenuController
     public void Press(POINT point, IntPtr root, RingMode mode)
     {
         _pressId++;
-        _shown = false;
         _root = root;
         _mode = mode;
-        if (Settings.Current.GestureMode)
-            _ = ShowAsync(_pressId, point, root, mode);
     }
 
-    public void Release(POINT point)
-    {
-        if (!Settings.Current.GestureMode)
-            _ = ShowAsync(_pressId, point, _root, _mode);
-        else if (_shown)
-            _window.ReleaseAt(point);
-        // Released before the ring appeared: it opens in click mode and waits for a click.
-    }
+    public void Release(POINT point) => _ = ShowAsync(_pressId, point, _root, _mode);
 
     private async Task ShowAsync(int id, POINT point, IntPtr root, RingMode mode)
     {
@@ -58,11 +47,9 @@ internal sealed class MenuController
                     return;
                 }
                 _window.ShowTop(items, Theme.Current(), Menus.Summary(detected), point, context, mode, detected);
-                _shown = true;
                 return;
             }
             _window.ShowTop(Menus.For(detected), Theme.Current(), Menus.Summary(detected), point, context, RingMode.Normal, detected);
-            _shown = true;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

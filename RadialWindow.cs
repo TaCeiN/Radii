@@ -502,29 +502,6 @@ internal sealed class RadialWindow : Window
         BeginAnimation(OpacityProperty, fade);
     }
 
-    /// <summary>The right button was released after a drag: pick the sector under the pointer if it is clearly outside the centre.</summary>
-    public void ReleaseAt(POINT pt)
-    {
-        if (_view is not { } view || !IsVisible)
-            return;
-        if (_chips?.HitChip(pt) is { } chip)
-        {
-            chip.Activate();
-            return;
-        }
-        // Straight from the window rectangle: the ring is scaled uniformly, so view units = pixels * Size / window width.
-        var width = _bounds.Right - _bounds.Left;
-        if (width <= 0)
-            return;
-        var factor = RadialView.Size / width;
-        var local = new Point((pt.X - _bounds.Left) * factor, (pt.Y - _bounds.Top) * factor);
-        var centre = RadialView.CenterPoint;
-        var distance = Math.Sqrt(Math.Pow(local.X - centre.X, 2) + Math.Pow(local.Y - centre.Y, 2));
-        var index = view.HitTest(local);
-        if (index >= 0 && distance > RadialView.Inner + 6)
-            Activate(view.ItemAt(index));
-    }
-
     public void HandleWheel(int delta)
     {
         if (_view is not { } view || view.Count == 0)

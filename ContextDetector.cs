@@ -45,25 +45,47 @@ internal static class ContextDetector
     public static async Task<Detected> DetectAsync(POINT pt, IntPtr root)
     {
         var desktop = ClassName(root) is "Progman" or "WorkerW";
-        var (count, names) = await Task.Run(() => Selection(pt));
+        var (count, names, homeItem) = await Task.Run(() => Selection(pt));
         if (desktop)
         {
             var folder = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
             return new Detected(Surface.Desktop, count, folder, count > 0 ? DesktopPaths(names) : []);
         }
 
+        if (homeItem is { } home)
+        {
+            // The Home page is a XAML list: no selection patterns, so the item is selected with a real click and its path is looked up by name.
+            var homePaths = await RunSta(() => HomePaths(home.Name, home.Location));
+            return new Detected(Surface.Explorer, 1, null, homePaths);
+        }
+
         var (explorerFolder, paths) = await RunSta(() => ExplorerState(root, names, count > 0));
         return new Detected(Surface.Explorer, count, explorerFolder, paths);
     }
 
-    private static (int Count, List<string> Names) Selection(POINT pt)
+    private readonly record struct HomeItem(string Name, string? Location);
+
+    private static (int Count, List<string> Names, HomeItem? Home) Selection(POINT pt)
     {
         var names = new List<string>();
         try
         {
             var element = AutomationElement.FromPoint(new System.Windows.Point(pt.X, pt.Y));
             var walker = TreeWalker.ControlViewWalker;
+            // The XAML island of the Home page answers for its whole area: look for the row under the point inside it.
+            if (element is not null && element.Current.ClassName == "Microsoft.UI.Content.DesktopChildSiteBridge")
+            {
+                var point = new System.Windows.Point(pt.X, pt.Y);
+                var row = element.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
+                    .Cast<AutomationElement>()
+                    .Where(e => e.Current.BoundingRectangle.Contains(point))
+                    .OrderBy(e => e.Current.BoundingRectangle.Width * e.Current.BoundingRectangle.Height)
+                    .FirstOrDefault();
+                if (row is not null)
+                    element = row;
+            }
             SelectionItemPattern? item = null;
+            AutomationElement? plain = null;
             for (var depth = 0; element is not null && depth < 8; depth++, element = walker.GetParent(element))
             {
                 var type = element.Current.ControlType;
@@ -72,10 +94,14 @@ internal static class ContextDetector
                 {
                     item = (SelectionItemPattern)itemPattern;
                 }
+                else if (item is null && plain is null && type == ControlType.ListItem && element.Current.ClassName is "GridViewItem" or "ListViewItem")
+                {
+                    plain = element;
+                }
                 if (element.TryGetCurrentPattern(SelectionPattern.Pattern, out var pattern))
                 {
                     if (item is null)
-                        return (0, names); // empty space
+                        return plain is not null ? HomeResult(plain) : (0, names, null); // Home row, else empty space
                     // The press was swallowed, so the shell did not select the item under the cursor: do it here,
                     // but keep a multi-selection that already contains it (as a right click does).
                     if (!item.Current.IsSelected)
@@ -83,14 +109,92 @@ internal static class ContextDetector
                     var selected = ((SelectionPattern)pattern).Current.GetSelection();
                     foreach (var chosen in selected)
                         names.Add(chosen.Current.Name);
-                    return (Math.Max(1, selected.Length), names);
+                    return (Math.Max(1, selected.Length), names, null);
                 }
             }
-            return (item is null ? 0 : 1, names);
+            if (item is null && plain is not null)
+                return HomeResult(plain);
+            return (item is null ? 0 : 1, names, null);
         }
         catch (Exception ex) when (ex is ElementNotAvailableException or InvalidOperationException or System.Runtime.InteropServices.COMException)
         {
-            return (0, names);
+            return (0, names, null);
+        }
+    }
+
+    private static (int Count, List<string> Names, HomeItem? Home) HomeResult(AutomationElement row)
+    {
+        var home = new HomeItem(row.Current.Name, HomeLocation(row));
+        // Home tiles cannot be selected through UI Automation: a plain left click does what the swallowed right click would have done.
+        mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero);
+        mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
+        return (1, [home.Name], home);
+    }
+
+    /// <summary>Second line of a Home row (the folder the file lives in), empty for tiles that show something else.</summary>
+    private static string? HomeLocation(AutomationElement row)
+    {
+        try
+        {
+            foreach (AutomationElement text in row.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Text)))
+            {
+                var value = text.Current.Name;
+                if (!string.IsNullOrWhiteSpace(value) && value != row.Current.Name)
+                    return value;
+            }
+        }
+        catch (Exception ex) when (ex is ElementNotAvailableException or InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+        }
+        return null;
+    }
+
+    /// <summary>Path of a Home item: a pinned or frequent folder from Quick access, else a recent file from the Recent folder (the shortcut with that name).</summary>
+    private static List<string> HomePaths(string name, string? location)
+    {
+        try
+        {
+            var type = Type.GetTypeFromProgID("Shell.Application");
+            if (type is null)
+                return [];
+            dynamic shell = Activator.CreateInstance(type)!;
+            try
+            {
+                foreach (dynamic entry in shell.NameSpace("shell:::{679f85cb-0220-4080-b29b-5540cc05aab6}").Items())
+                {
+                    if (string.Equals((string)entry.Name, name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var path = (string)entry.Path;
+                        if (Directory.Exists(path) || File.Exists(path))
+                            return [path];
+                    }
+                }
+            }
+            catch
+            {
+                // Quick access not enumerable: fall through to Recent.
+            }
+
+            // "Local disk (D:)\a\b" and "Documents\a\b" both end in the folder path after the first segment.
+            var tail = location is { } l && l.IndexOf('\\') is var cut and >= 0 ? l[(cut + 1)..].TrimEnd('\\', '.', '…') : "";
+            dynamic wsh = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!)!;
+            string? fallback = null;
+            foreach (var link in new DirectoryInfo(Environment.GetFolderPath(Environment.SpecialFolder.Recent)).EnumerateFiles("*.lnk").OrderByDescending(f => f.LastWriteTimeUtc))
+            {
+                if (!string.Equals(Path.GetFileNameWithoutExtension(link.Name), name, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                string target = wsh.CreateShortcut(link.FullName).TargetPath;
+                if (!File.Exists(target) && !Directory.Exists(target))
+                    continue;
+                if (tail.Length == 0 || (Path.GetDirectoryName(target) ?? "").EndsWith(tail, StringComparison.OrdinalIgnoreCase))
+                    return [target];
+                fallback ??= target;
+            }
+            return fallback is null ? [] : [fallback];
+        }
+        catch
+        {
+            return [];
         }
     }
 

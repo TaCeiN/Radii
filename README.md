@@ -102,7 +102,7 @@ Under every ring pills switch between the normal, convert and edit rings; `Left`
 
 ## Use
 
-- **Gesture:** hold the right button, move towards a sector, release. A plain click opens the ring and waits for a click.
+- **Open:** right-click; the ring appears where you released the button and waits for a click on a sector.
 - **Keys while the ring is open:** arrows or the mouse wheel move the highlight, `Enter` confirms, `Esc` closes.
 - **Tray icon:** left click opens settings; menu toggles the ring and exits.
 
@@ -126,7 +126,7 @@ Every menu ends with **Extensions**. Sectors can be hidden, your own commands ad
 ## Settings
 
 `%APPDATA%\Radii\settings.json`, edited from the tray window (changes apply at once):
-theme, ring size, blurred background, number hints, animations, gesture mode, language, autostart, per-sector visibility,
+theme, ring size, blurred background, number hints, animations, language, autostart, per-sector visibility,
 usage sorting, converter shortcut, and **own commands** (program + arguments with `{path}` `{paths}` `{folder}` `{name}`, per file type, optionally elevated).
 
 ## Build from source

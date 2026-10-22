@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1
+
+- Fixed: right click on files and folders on the Explorer Home page now selects the item and opens the ring for it (before, the ring was the empty-space one).
+- Removed the press-drag-release gesture and its setting: the ring opens on release and waits for a click, so it can no longer pick a sector by itself when it appears under the cursor near a screen edge.
+
 ## 0.4.0
 
 - **Mini editors** (Ctrl + right click, or the "Edit" pill beside the ring): small glass windows for quick edits that save a new file next to the
