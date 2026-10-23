@@ -59,7 +59,8 @@ internal sealed class RadialWindow : Window
     /// <summary>Where the pointer was when the ring last opened: a second ring (formats) opens on the same spot.</summary>
     public POINT LastCursor { get; private set; }
 
-    public bool ContainsRing(POINT pt) => Inside(_bounds, pt);
+    // While the extensions list covers the ring, the wheel belongs to the list (the hook swallows it only over the ring).
+    public bool ContainsRing(POINT pt) => !_extMode && Inside(_bounds, pt);
 
     /// <summary>Ring or any flyout. Called from the hook thread.</summary>
     public bool Contains(POINT pt)
@@ -88,10 +89,13 @@ internal sealed class RadialWindow : Window
     /// <summary>A fresh ring opened by the mouse: remembers what it was opened on, so that the pills and keys can switch the ring.</summary>
     public void ShowTop(IReadOnlyList<RadialItem> items, Theme theme, string summary, POINT cursor, ShellContext context, RingMode mode, Detected detected)
     {
+        _rootItems = items;
         _source = detected;
         _rootContext = context;
         _history.Clear();
         ShowAt(items, theme, summary, cursor, context, mode, sub: false, direction: 0);
+        if (mode == RingMode.Normal)
+            StartPrefetch();
     }
 
     /// <summary>A sector opened a second-level ring (formats of a family): it replaces this ring, "Back" returns.</summary>
@@ -99,7 +103,8 @@ internal sealed class RadialWindow : Window
     {
         if (_current is { } current)
             _history.Add(current);
-        ShowAt(items, _theme, summary, LastCursor, context, _current?.Mode ?? RingMode.Convert, sub: true, direction: 1);
+        // A group of the normal ring keeps the Explorer window as owner (the shell menu used by the search needs it).
+        ShowAt(items, _theme, summary, LastCursor, _current?.Mode == RingMode.Normal ? _rootContext ?? context : context, _current?.Mode ?? RingMode.Convert, sub: true, direction: 1);
     }
 
     private void GoBack()
@@ -142,7 +147,10 @@ internal sealed class RadialWindow : Window
         if (direction == 0)
             direction = -1;
         _history.Clear();
+        _rootItems = items;
         ShowAt(items, _theme, Menus.Summary(source), LastCursor, _rootContext ?? _context, mode, sub: false, direction);
+        if (mode == RingMode.Normal && _prefetch is null && _session is null)
+            StartPrefetch();
     }
 
     /// <summary>Left / Right (and A / D): the neighbouring ring mode; inside a second-level ring Left goes back. False when there is nothing to switch to.</summary>
@@ -196,7 +204,7 @@ internal sealed class RadialWindow : Window
         }
         else if (previous == next)
         {
-            specs.Add(Make(next, "←  →"));
+            specs.Add(Make(next, "")); // the only other ring: no shortcut hint, it is a plain switch
         }
         else
         {
@@ -246,6 +254,7 @@ internal sealed class RadialWindow : Window
         var side = (int)Math.Round(RadialView.Size * ringScale * dpiScale);
         var info = new MONITORINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<MONITORINFO>() };
         GetMonitorInfo(monitor, ref info);
+        _work = info.rcWork;
         var x = Math.Clamp(cursor.X - side / 2, info.rcWork.Left, Math.Max(info.rcWork.Left, info.rcWork.Right - side));
         var y = Math.Clamp(cursor.Y - side / 2, info.rcWork.Top, Math.Max(info.rcWork.Top, info.rcWork.Bottom - side));
 
@@ -318,6 +327,7 @@ internal sealed class RadialWindow : Window
             _chipsRect = _chips.Bounds;
         }
 
+        _hook.SearchEnabled = _rootItems is not null && !_extMode;
         _hook.MenuVisible = true;
         _awayTimer.Start();
         if (transition)
@@ -394,6 +404,8 @@ internal sealed class RadialWindow : Window
 
     private void OnRingHover(RadialItem? item)
     {
+        if (_query is not null)
+            return; // the results list is open: crossing the ring must not close it
         if (!_dwellWired)
         {
             _dwellWired = true;
@@ -418,9 +430,7 @@ internal sealed class RadialWindow : Window
         }
         if (item.Flyout)
         {
-            _dismiss.Stop();
-            if (_flyouts.Count == 0 && !_dwell.IsEnabled)
-                _dwell.Start();
+            _dismiss.Stop(); // the extensions open on a click, not on hover: the list takes the ring's place
             return;
         }
         _dwell.Stop();
@@ -448,7 +458,11 @@ internal sealed class RadialWindow : Window
             _history.Clear();
             _switchToken++; // a ring that was about to slide in is cancelled
             _hook.MenuVisible = false;
+            _hook.SearchEnabled = false;
+            _extMode = false;
+            DropPrefetch();
         }
+        ResetSearch();
         _awayTimer.Stop();
         _dwell.Stop();
         _dismiss.Stop();
@@ -510,39 +524,292 @@ internal sealed class RadialWindow : Window
         view.SetHover(next);
     }
 
-    public void HandleKey(uint vk)
+    public void HandleKey(uint vk, string? text)
     {
         if (_view is not { } view)
             return;
+        if (_extMode)
+        {
+            // The extensions list is on screen: Esc, Left and A go back to the ring, nothing else is used.
+            if (vk is 0x1B or 0x25 or 0x41)
+                ExitExtensions();
+            return;
+        }
+        var searching = _query is not null;
+        // A / D switch the ring mode (or go back) while there is somewhere to go and no search runs; otherwise they are letters.
+        var modeKeys = !searching && (_current?.Sub == true || AvailableModes().Count >= 2);
         switch (vk)
         {
             case 0x1B:
-                HideMenu();
-                break;
+                if (searching)
+                    EndSearch();
+                else
+                    HideMenu();
+                return;
             case 0x0D:
-                Activate(view.ItemAt(view.Hovered));
-                break;
-            case 0x25 or 0x41: // Left, A: previous ring mode (or back out of a second-level ring)
+                if (searching)
+                    ActivateHit(_selectedHit);
+                else
+                    Activate(view.ItemAt(view.Hovered));
+                return;
+            case 0x08:
+                if (searching && _query!.Length > 0)
+                    SetQuery(_query[..^1]);
+                else if (searching)
+                    EndSearch();
+                return;
+            case 0x25 or 0x41 when modeKeys || vk == 0x25 && !searching: // Left, A: previous ring mode (or back out of a second-level ring)
                 if (!StepMode(-1) && vk == 0x25)
                     HandleWheel(1);
-                break;
-            case 0x27 or 0x44: // Right, D: next ring mode
+                return;
+            case 0x27 or 0x44 when modeKeys || vk == 0x27 && !searching: // Right, D: next ring mode
                 if (!StepMode(1) && vk == 0x27)
                     HandleWheel(-1);
-                break;
+                return;
             case 0x26:
-                HandleWheel(1);
-                break;
+                if (searching)
+                    MoveHit(-1);
+                else
+                    HandleWheel(1);
+                return;
             case 0x28:
-                HandleWheel(-1);
-                break;
+                if (searching)
+                    MoveHit(1);
+                else
+                    HandleWheel(-1);
+                return;
         }
+        if (!_hook.SearchEnabled)
+            return;
+        if (!searching)
+        {
+            // "/" opens the search empty (so that the first letter may be A or D); any other character starts it.
+            if (vk == 0xBF)
+                StartSearch("");
+            else if (!string.IsNullOrEmpty(text))
+                StartSearch(text);
+        }
+        else if (!string.IsNullOrEmpty(text))
+        {
+            SetQuery(_query + text);
+        }
+    }
+
+    // --- type-to-search over every action of the ring (groups included) and the shell extensions ------------------------
+
+    private sealed record SearchEntry(string Label, string Group, string Glyph, ImageSource? Icon, RadialItem? Item, ShellEntry? Shell);
+
+    private IReadOnlyList<RadialItem>? _rootItems;
+    private string? _query;
+    private List<SearchEntry> _corpus = [];
+    private List<SearchEntry> _hits = [];
+    private int _selectedHit;
+    private FlyoutWindow? _searchFlyout;
+
+    private void StartSearch(string query)
+    {
+        CloseExtensions(); // the extensions flyout would sit under the results
+        _hook.SearchActive = true;
+        _query = query;
+        RebuildCorpus();
+        if (_session is null && _current?.Mode == RingMode.Normal)
+        {
+            var token = _flyoutToken;
+            _ = LoadSearchSessionAsync(token);
+        }
+        RefreshHits();
+    }
+
+    private async Task LoadSearchSessionAsync(int token)
+    {
+        ShellMenuSession? session = null;
+        try
+        {
+            session = await TakeSession();
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException)
+        {
+        }
+        if (token != _flyoutToken || !_hook.MenuVisible || _query is null)
+        {
+            session?.Dispose();
+            return;
+        }
+        _session?.Dispose();
+        _session = session;
+        RebuildCorpus();
+        RefreshHits();
+    }
+
+    private void SetQuery(string query)
+    {
+        _query = query;
+        RefreshHits();
+    }
+
+    /// <summary>Esc during a search: the list closes and the ring is as it was.</summary>
+    private void EndSearch()
+    {
+        ResetSearch();
+        _view?.SetStatus(null);
+    }
+
+    private void ResetSearch()
+    {
+        _query = null;
+        _hits = [];
+        _selectedHit = 0;
+        _hook.SearchActive = false;
+        if (_searchFlyout is { } flyout)
+        {
+            _searchFlyout = null;
+            var index = _flyouts.IndexOf(flyout);
+            if (index >= 0)
+                CloseFlyouts(index, Settings.Current.Animations && IsVisible);
+        }
+    }
+
+    private void RebuildCorpus()
+    {
+        var corpus = new List<SearchEntry>();
+        void AddItems(IEnumerable<RadialItem> items, string group)
+        {
+            foreach (var item in items)
+            {
+                if (item.Flyout || item.Id.EndsWith(":cancel", StringComparison.Ordinal))
+                    continue;
+                if (item.Children is { } children)
+                    AddItems(children, group.Length > 0 ? group + " › " + item.Label : item.Label);
+                else
+                    corpus.Add(new SearchEntry(item.Label, group, item.Glyph, null, item, null));
+            }
+        }
+        if (_rootItems is not null)
+            AddItems(_rootItems, "");
+        if (_rootItems is not null && _current?.Mode == RingMode.Normal && _source is { } source)
+            AddItems(Menus.Extras(source), Menus.T("extra", "доп."));
+
+        void AddShell(IEnumerable<ShellEntry> entries, string group)
+        {
+            foreach (var entry in entries)
+            {
+                if (entry.IsSeparator || entry.Disabled || entry.Label.Length == 0)
+                    continue;
+                if (entry.HasChildren)
+                    AddShell(entry.Children, group.Length > 0 ? group + " › " + entry.Label : entry.Label);
+                else
+                    corpus.Add(new SearchEntry(entry.Label, group, "", entry.Icon, null, entry));
+            }
+        }
+        if (_session is { } session && _current?.Mode == RingMode.Normal)
+            AddShell(ShellFilter.Clean(session.Entries), "");
+        _corpus = corpus;
+    }
+
+    /// <summary>Every word of the query has to appear in the label or its group; labels that start with a word come first.</summary>
+    private static int Score(SearchEntry entry, string[] words)
+    {
+        var total = 0;
+        foreach (var word in words)
+        {
+            var label = entry.Label;
+            if (label.StartsWith(word, StringComparison.CurrentCultureIgnoreCase))
+                total += 0;
+            else if (label.Contains(' ' + word, StringComparison.CurrentCultureIgnoreCase))
+                total += 1;
+            else if (label.Contains(word, StringComparison.CurrentCultureIgnoreCase))
+                total += 2;
+            else if (entry.Group.Contains(word, StringComparison.CurrentCultureIgnoreCase))
+                total += 3;
+            else
+                return -1;
+        }
+        return total;
+    }
+
+    private void RefreshHits()
+    {
+        if (_query is null || _view is not { } view)
+            return;
+        var words = _query.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        view.SetStatus(_query.Length == 0 ? Menus.T("Type…", "Пиши…") : _query + "▏");
+        _hits = words.Length == 0
+            ? []
+            : _corpus.Select((entry, order) => (entry, order, score: Score(entry, words)))
+                .Where(t => t.score >= 0)
+                .OrderBy(t => t.score).ThenBy(t => t.order)
+                .Take(30).Select(t => t.entry).ToList();
+        _selectedHit = 0;
+        if (words.Length == 0)
+        {
+            CloseSearchList();
+            return;
+        }
+
+        var rows = _hits.Count == 0
+            ? new List<ShellEntry> { new() { Id = -3, Label = Menus.T("Nothing found", "Ничего не найдено"), Disabled = true } }
+            : _hits.Select((hit, i) => new ShellEntry { Id = i, Label = hit.Label, Hint = hit.Group.Length > 0 ? hit.Group : null, Icon = hit.Icon, Glyph = IsIconGlyph(hit.Glyph) ? hit.Glyph : "" }).ToList();
+        if (_searchFlyout is null)
+        {
+            _searchFlyout = new FlyoutWindow(_theme, OnFlyoutHover, OnSearchActivate);
+            _flyouts.Insert(0, _searchFlyout);
+        }
+        _searchFlyout.Populate(rows);
+        _searchFlyout.ShowBeside(_ringRect, null, preferLeft: true);
+        _searchFlyout.View.SetSelected(_hits.Count == 0 ? -1 : 0);
+        PublishRects();
+    }
+
+    /// <summary>A Fluent icon (one private-use character), not a format name such as "PNG" that the converter ring draws as text.</summary>
+    private static bool IsIconGlyph(string glyph) => glyph.Length == 1 && !char.IsAsciiLetterOrDigit(glyph[0]);
+
+    private void CloseSearchList()
+    {
+        if (_searchFlyout is not { } flyout)
+            return;
+        _searchFlyout = null;
+        var index = _flyouts.IndexOf(flyout);
+        if (index >= 0)
+            CloseFlyouts(index, false);
+    }
+
+    private void MoveHit(int step)
+    {
+        if (_hits.Count == 0 || _searchFlyout is null)
+            return;
+        _selectedHit = (_selectedHit + step + _hits.Count) % _hits.Count;
+        _searchFlyout.View.SetSelected(_selectedHit);
+    }
+
+    private void OnSearchActivate(ShellEntry row)
+    {
+        if (row.Id >= 0 && row.Id < _hits.Count)
+            ActivateHit(row.Id);
+    }
+
+    private void ActivateHit(int index)
+    {
+        if (index < 0 || index >= _hits.Count)
+            return;
+        var hit = _hits[index];
+        if (hit.Item is { } item)
+            Activate(item);
+        else if (hit.Shell is { } shell)
+            OnFlyoutActivate(shell);
     }
 
     private void Activate(RadialItem? item)
     {
         if (item is null)
             return;
+        if (item.Children is { } children)
+        {
+            // A group: its actions form a ring of their own (with "Back" and the usual pills).
+            ShowSub(children, item.Label, _rootContext ?? _context);
+            return;
+        }
+        if (item.Flyout && _query is not null)
+            EndSearch();
         if (item.Flyout)
         {
             OpenExtensions();
@@ -569,17 +836,76 @@ internal sealed class RadialWindow : Window
 
     private FlyoutWindow NewFlyout() => new(_theme, OnFlyoutHover, OnFlyoutActivate);
 
+    private bool _extMode;
+    private RECT _work;
+
     private void OpenExtensions()
     {
-        if (_flyouts.Count > 0)
-            return; // already open (hover got there first)
+        if (_flyouts.Count > 0 || _extMode)
+            return;
+        // The tile list takes the ring's place (same centre, "Back" below): the ring turns away.
+        _extMode = true;
+        _hook.SearchEnabled = false;
+        if (Content is UIElement ring)
+        {
+            ring.IsHitTestVisible = false;
+            ring.BeginAnimation(OpacityProperty, new DoubleAnimation(ring.Opacity, 0, TimeSpan.FromMilliseconds(Settings.Current.Animations ? 140 : 1)));
+        }
         var token = ++_flyoutToken;
         var first = NewFlyout();
-        first.Populate([new ShellEntry { Id = -2, Label = Menus.T("Loading…", "Загрузка…"), Disabled = true }]);
-        first.ShowBeside(_ringRect, null, preferLeft: true);
+        first.View.Tiles = true;
         _flyouts.Add(first);
+        if (_session is { } cached)
+        {
+            PresentExtensions(first, cached);
+            return;
+        }
+        if (_prefetch is { IsCompletedSuccessfully: true } ready)
+        {
+            // The menu was loaded while the ring was on screen: the grid opens complete, in one piece.
+            _prefetch = null;
+            PresentExtensions(first, ready.Result);
+            return;
+        }
+        first.Populate([new ShellEntry { Id = -2, Label = Menus.T("Loading…", "Загрузка…"), Glyph = "", Disabled = true }]);
+        first.ShowOver(_ringRect);
+        ShowBackChip(first);
         PublishRects();
         _ = LoadExtensionsAsync(first, token);
+    }
+
+    /// <summary>Back from the extensions list to the ring.</summary>
+    private void ExitExtensions()
+    {
+        if (!_extMode)
+            return;
+        _extMode = false;
+        _flyoutToken++;
+        CloseFlyouts(0, Settings.Current.Animations);
+        if (Content is UIElement ring)
+        {
+            ring.IsHitTestVisible = true;
+            ring.BeginAnimation(OpacityProperty, new DoubleAnimation(ring.Opacity, 1, TimeSpan.FromMilliseconds(Settings.Current.Animations ? 180 : 1)));
+        }
+        _hook.SearchEnabled = _rootItems is not null;
+        if (_current is { } state)
+            ReplaceChips(BuildChips(state.Mode, state.Sub), _ringRect);
+    }
+
+    private void ShowBackChip(FlyoutWindow list) =>
+        ReplaceChips([new ChipSpec(null, Menus.T("Back", "Назад"), "", "", ExitExtensions, HintLeft: true)], list.VisibleBounds);
+
+    private void ReplaceChips(List<ChipSpec> specs, RECT anchor)
+    {
+        if (_chips is { } old)
+            old.Close();
+        _chips = null;
+        _chipsRect = default;
+        if (specs.Count == 0)
+            return;
+        _chips = new ChipsWindow(_theme, specs, spec => spec.Activate());
+        _chips.ShowNear(anchor, _work, _dpiScale, Settings.Current.Animations);
+        _chipsRect = _chips.Bounds;
     }
 
     private async Task LoadExtensionsAsync(FlyoutWindow first, int token)
@@ -587,7 +913,7 @@ internal sealed class RadialWindow : Window
         ShellMenuSession? session = null;
         try
         {
-            session = await ShellMenuHost.QueryAsync(_context.Paths, _context.Folder, _context.Owner);
+            session = await TakeSession();
         }
         catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException)
         {
@@ -597,15 +923,49 @@ internal sealed class RadialWindow : Window
             session?.Dispose();
             return;
         }
+        PresentExtensions(first, session);
+    }
+
+    private void PresentExtensions(FlyoutWindow first, ShellMenuSession? session)
+    {
+        if (!ReferenceEquals(_session, session))
+            _session?.Dispose();
         _session = session;
         WriteLog(session);
         var entries = session is null ? [] : ShellFilter.Clean(session.Entries);
-        if (entries.Count > 0)
-            entries.Add(new ShellEntry { IsSeparator = true });
-        entries.Add(new ShellEntry { Id = NativeMenuId, Label = Menus.T("Windows menu", "Стандартное меню Windows"), Hint = "Shift+F10" });
+        entries.Add(new ShellEntry { Id = NativeMenuId, Label = Menus.T("Windows menu", "Меню Windows"), Hint = "Shift+F10", Glyph = "" });
         first.Populate(entries);
-        first.ShowBeside(_ringRect, null, preferLeft: true);
+        first.ShowOver(_ringRect);
+        ShowBackChip(first);
         PublishRects();
+    }
+
+    // The shell menu is asked for as soon as the ring is on screen, so that the extensions (and the search) have it ready.
+    private Task<ShellMenuSession?>? _prefetch;
+
+    private void StartPrefetch()
+    {
+        DropPrefetch();
+        var context = _context;
+        _prefetch = ShellMenuHost.QueryAsync(context.Paths, context.Folder, context.Owner);
+    }
+
+    private void DropPrefetch()
+    {
+        var task = _prefetch;
+        _prefetch = null;
+        _ = task?.ContinueWith(t =>
+        {
+            if (t.IsCompletedSuccessfully)
+                t.Result?.Dispose();
+        }, TaskScheduler.Default);
+    }
+
+    private Task<ShellMenuSession?> TakeSession()
+    {
+        var task = _prefetch ?? ShellMenuHost.QueryAsync(_context.Paths, _context.Folder, _context.Owner);
+        _prefetch = null;
+        return task;
     }
 
     private const int NativeMenuId = -1;

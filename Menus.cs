@@ -10,7 +10,8 @@ namespace Radii;
 
 /// <param name="Flyout">Opens the extensions flyout instead of running an action.</param>
 /// <param name="Navigates">The sector opens another ring: the ring stays on screen and <see cref="Run"/> swaps it (with the back pill).</param>
-internal sealed record RadialItem(string Id, string Glyph, string Label, Action Run, bool Danger = false, bool Flyout = false, bool Navigates = false);
+/// <param name="Children">A group sector: it opens a ring of these actions (the window does it, <see cref="Run"/> is not used).</param>
+internal sealed record RadialItem(string Id, string Glyph, string Label, Action Run, bool Danger = false, bool Flyout = false, bool Navigates = false, IReadOnlyList<RadialItem>? Children = null);
 
 internal enum FileKind
 {
@@ -124,69 +125,155 @@ internal static class Menus
     private static RadialItem Item(string id, string glyph, string en, string ru, Action run, bool danger = false) =>
         new(id, glyph, T(en, ru), run, danger);
 
-    private static RadialItem Extensions() =>
+    internal static RadialItem Extensions() =>
         new(ExtensionsId, "\uE712", T("Extensions", "Расширения"), () => { }, Flyout: true);
 
-    public static List<RadialItem> For(Detected d)
+    public static List<RadialItem> For(Detected d) => Finish(Plan(d).Ring, d);
+
+    /// <summary>Actions that are not on the ring for this selection but are found by the search (and can be pinned in the ring editor).</summary>
+    public static List<RadialItem> Extras(Detected d)
     {
-        var items = d.HasSelection ? ForSelection(d) : ForBackground(d);
-        return Finish(items, d);
+        var plan = Plan(d);
+        return plan.Pool.Where(p => plan.Ring.All(r => r.Id != p.Id)).ToList();
     }
 
-    private static List<RadialItem> ForSelection(Detected d)
-    {
-        var kind = KindOf(d);
-        var path = d.Paths.Count == 1 ? d.Paths[0] : null;
-        var single = d.Count == 1;
-        var items = new List<RadialItem>
-        {
-            Item("open", "\uE8E5", kind == FileKind.Executable ? "Run" : "Open", kind == FileKind.Executable ? "Запустить" : "Открыть", () => Keys.Chord(Keys.Enter)),
-        };
+    /// <param name="Ring">Sectors for this context (the user's layout when there is one), without the extensions sector.</param>
+    /// <param name="Pool">Everything that can sit in this ring: the defaults, the extras and the user's commands.</param>
+    /// <param name="Default">The ring as it is without a user layout.</param>
+    internal sealed record RingPlan(List<RadialItem> Ring, List<RadialItem> Pool, List<RadialItem> Default);
 
+    /// <summary>The kinds of ring the editor can lay out: key, English and Russian name.</summary>
+    internal static readonly (string Key, string En, string Ru)[] Contexts =
+    [
+        ("file", "File", "Файл"), ("several", "Several files", "Несколько файлов"), ("folder", "Folder", "Папка"), ("git", "Git repository", "Git-репозиторий"),
+        ("program", "Program", "Программа"), ("picture", "Picture", "Картинка"), ("archive", "Archive", "Архив"), ("disk", "Disk image", "Образ диска"),
+        ("background", "Empty space in folder", "Пусто в папке"), ("desktop", "Desktop", "Рабочий стол"),
+    ];
+
+    public static string ContextKey(Detected d, FileKind kind)
+    {
+        if (!d.HasSelection)
+            return d.Surface == Surface.Desktop ? "desktop" : "background";
+        if (d.Count > 1 || d.Paths.Count > 1)
+            return "several";
+        return kind switch
+        {
+            FileKind.Folder => "folder",
+            FileKind.GitRepo => "git",
+            FileKind.Executable => "program",
+            FileKind.Image => "picture",
+            FileKind.Archive => "archive",
+            FileKind.DiskImage => "disk",
+            _ => "file",
+        };
+    }
+
+    /// <summary>A made-up selection of the given kind, for the ring editor (nothing is read from disk).</summary>
+    internal static (Detected Detected, FileKind Kind) SampleFor(string key)
+    {
+        const string root = @"C:\Sample";
+        Detected One(string name) => new(Surface.Explorer, 1, root, [root + "\\" + name]);
+        return key switch
+        {
+            "several" => (new Detected(Surface.Explorer, 3, root, [root + @".txt", root + @".txt", root + @"\c.txt"]), FileKind.Unknown),
+            "folder" => (One("Folder"), FileKind.Folder),
+            "git" => (One("Project"), FileKind.GitRepo),
+            "program" => (One("setup.exe"), FileKind.Executable),
+            "picture" => (One("photo.png"), FileKind.Image),
+            "archive" => (One("pack.zip"), FileKind.Archive),
+            "disk" => (One("disk.iso"), FileKind.DiskImage),
+            "background" => (new Detected(Surface.Explorer, 0, root), FileKind.Unknown),
+            "desktop" => (new Detected(Surface.Desktop, 0, root), FileKind.Unknown),
+            _ => (One("document.txt"), FileKind.Other),
+        };
+    }
+
+    internal static RingPlan Plan(Detected d, FileKind? forcedKind = null, bool sample = false)
+    {
+        var kind = forcedKind ?? KindOf(d);
+        var (defaults, extras) = d.HasSelection ? Slots(d, kind, sample) : (ForBackground(d), []);
+        var custom = CustomItems(d, kind, sample).ToList();
+        var pool = defaults.Concat(extras).Concat(custom).ToList();
+        var fallback = defaults.Concat(custom).ToList();
+        var ring = fallback;
+        if (Settings.Current.Layouts.TryGetValue(ContextKey(d, kind), out var ids) && ids.Count > 0)
+        {
+            var chosen = ids.Select(id => pool.FirstOrDefault(p => p.Id == id)).OfType<RadialItem>().DistinctBy(i => i.Id).ToList();
+            if (chosen.Count > 0)
+                ring = chosen;
+        }
+        return new RingPlan([.. ring], pool, fallback);
+    }
+
+    /// <summary>
+    /// The ring of a selection has fixed places, clockwise from the top: 1 open, 2 what is special about the kind of item,
+    /// 3 copy, 4 cut, 5 delete, 6 rename (several items: move to a new folder), 7 copy as path (a repository with a remote: open on GitHub),
+    /// 8 extensions (added by <see cref="Finish"/>). The same action keeps its angle in every context.
+    /// </summary>
+    private static (List<RadialItem> Ring, List<RadialItem> Extras) Slots(Detected d, FileKind kind, bool sample)
+    {
+        var paths = d.Paths;
+        var path = paths.Count == 1 ? paths[0] : null;
+        var single = d.Count == 1;
+        var ring = new List<RadialItem>
+        {
+            Item("open", "", kind == FileKind.Executable ? "Run" : "Open", kind == FileKind.Executable ? "Запустить" : "Открыть", () => Keys.Chord(Keys.Enter)),
+        };
+        var extras = new List<RadialItem>();
+
+        // Slot 2.
+        var compress = paths.Count > 0 ? Item("compress", "", "Compress to zip", "Сжать в zip", () => Compress(paths)) : null;
         switch (kind)
         {
             case FileKind.Executable:
-                items.Add(Item("admin", "\uE7EF", "Run as admin", "Запуск от админа", () => RunAsAdministrator(path!)));
+                ring.Add(Item("admin", "", "Run as admin", "Запуск от админа", () => RunAsAdministrator(path!)));
                 break;
-            case FileKind.Folder:
-                items.Add(Item("terminal", "\uE756", "Open in Terminal", "Открыть в терминале", () => Terminal(path)));
-                break;
-            case FileKind.GitRepo:
-                items.Add(Item("terminal", "\uE756", "Open in Terminal", "Открыть в терминале", () => Terminal(path)));
-                if (GitRemoteUrl(path!) is { } url)
-                    items.Add(Item("github", "\uE774", "Open on GitHub", "Открыть на GitHub", () => Launch(new ProcessStartInfo(url) { UseShellExecute = true })));
+            case FileKind.Folder or FileKind.GitRepo:
+                ring.Add(Item("terminal", "", "Open in Terminal", "Открыть в терминале", () => Terminal(path)));
                 break;
             case FileKind.Image:
-                items.Add(Item("wallpaper", "\uE91B", "Set as wallpaper", "Сделать обоями", () => SetWallpaper(path!)));
+                ring.Add(Item("wallpaper", "", "Set as wallpaper", "Сделать обоями", () => SetWallpaper(path!)));
                 break;
             case FileKind.Archive:
-                items.Add(Item("extract", "\uE8B7", "Extract here", "Распаковать", () => Extract(path!)));
+                ring.Add(Item("extract", "", "Extract here", "Распаковать", () => Extract(path!)));
                 break;
             case FileKind.DiskImage:
-                items.Add(Item("mount", "\uE958", "Mount disk image", "Смонтировать образ", () => Mount(path!)));
+                ring.Add(Item("mount", "", "Mount disk image", "Смонтировать образ", () => Mount(path!)));
                 break;
         }
+        var hasContextSlot = ring.Count == 2;
+        if (compress is not null && hasContextSlot)
+            extras.Add(compress);
+        else if (compress is not null)
+            ring.Add(compress); // plain files and several items: the slot holds "Compress to zip"
 
-        if (kind is FileKind.Executable or FileKind.Image or FileKind.Archive or FileKind.DiskImage or FileKind.Other)
-            items.Add(Item("openwith", "\uE8A7", "Open with…", "Открыть с помощью…", () => OpenWith(path!)));
-
-        items.Add(Item("copy", "\uE8C8", "Copy", "Копировать", () => Keys.Chord(Keys.Ctrl, Keys.C)));
-        items.Add(Item("cut", "\uE8C6", "Cut", "Вырезать", () => Keys.Chord(Keys.Ctrl, Keys.X)));
+        ring.Add(Item("copy", "", "Copy", "Копировать", () => Keys.Chord(Keys.Ctrl, Keys.C)));
+        ring.Add(Item("cut", "", "Cut", "Вырезать", () => Keys.Chord(Keys.Ctrl, Keys.X)));
+        ring.Add(Item("delete", "", "Delete", "Удалить", () => Keys.Chord(Keys.Delete), danger: true));
         if (single)
-            items.Add(Item("rename", "\uE8AC", "Rename", "Переименовать", () => Keys.Chord(Keys.F2)));
-        items.Add(Item("delete", "\uE74D", "Delete", "Удалить", () => Keys.Chord(Keys.Delete), danger: true));
-        items.Add(Item("copypath", "\uE71B", "Copy as path", "Копировать как путь", () => Keys.Chord(Keys.Ctrl, Keys.Shift, Keys.C)));
+            ring.Add(Item("rename", "", "Rename", "Переименовать", () => Keys.Chord(Keys.F2)));
+        else if (paths.Count > 1)
+            ring.Add(Item("movetonew", "", "Move to new folder", "В новую папку", () => MoveToNewFolder(paths)));
 
-        if (!single && d.Paths.Count > 1)
+        var copyPath = Item("copypath", "", "Copy as path", "Копировать как путь", () => Keys.Chord(Keys.Ctrl, Keys.Shift, Keys.C));
+        var url = kind == FileKind.GitRepo ? (sample ? "https://github.com/" : GitRemoteUrl(path!)) : null;
+        if (url is not null)
         {
-            var paths = d.Paths;
-            items.Add(Item("compress", "\uE8B7", "Compress to zip", "Сжать в zip", () => Compress(paths)));
-            items.Add(Item("movetonew", "\uE8F4", "Move to new folder", "В новую папку", () => MoveToNewFolder(paths)));
-            items.Add(Item("hash", "\uE8D7", "SHA-256", "SHA-256", () => Hash(paths)));
+            ring.Add(Item("github", "", "Open on GitHub", "Открыть на GitHub", () => Launch(new ProcessStartInfo(url) { UseShellExecute = true })));
+            extras.Add(copyPath);
+        }
+        else
+        {
+            ring.Add(copyPath);
         }
 
-        items.Add(Item("props", "\uE946", "Properties", "Свойства", () => Keys.Chord(Keys.Alt, Keys.Enter)));
-        return items;
+        // Not on the ring: found by the search, pinned in settings.
+        if (path is not null && kind != FileKind.Folder && kind != FileKind.GitRepo)
+            extras.Add(Item("openwith", "", "Open with…", "Открыть с помощью…", () => OpenWith(path)));
+        if (sample ? kind is not (FileKind.Folder or FileKind.GitRepo) : paths.Any(File.Exists))
+            extras.Add(Item("hash", "", "SHA-256", "SHA-256", () => Hash(paths)));
+        extras.Add(Item("props", "", "Properties", "Свойства", () => Keys.Chord(Keys.Alt, Keys.Enter)));
+        return (ring, extras);
     }
 
     private static List<RadialItem> ForBackground(Detected d)
@@ -215,32 +302,59 @@ internal static class Menus
     {
         var settings = Settings.Current;
         items.RemoveAll(i => settings.HiddenItems.Contains(i.Id));
-        items.AddRange(CustomItems(d));
-        if (items.Count > MaxSectors - 1)
-            items.RemoveRange(MaxSectors - 1, items.Count - (MaxSectors - 1));
+        items = Grouped(items);
         if (settings.SortByUsage && items.Count > 2)
         {
             // The first sector (Open / Paste) keeps its place; the rest are ordered by how often they were used.
-            var rest = items.Skip(1).OrderByDescending(i => settings.Usage.GetValueOrDefault(i.Id)).ToList();
+            var rest = items.Skip(1).OrderByDescending(UsageOf).ToList();
             items = [items[0], .. rest];
+        }
+        if (items.Count > MaxSectors - 1)
+        {
+            // Too many for one ring: the tail (the least used when sorting by usage) moves into a "More" group instead of being dropped.
+            var keep = MaxSectors - 2;
+            var overflow = items.Skip(keep).ToList();
+            items = items.Take(keep).ToList();
+            items.Add(new RadialItem("group:more", "", T("More", "Ещё"), () => { }, Navigates: true, Children: overflow));
         }
         items.Add(Extensions());
         return items;
     }
 
-    private static IEnumerable<RadialItem> CustomItems(Detected d)
+    /// <summary>Sectors that are tucked into a group sector (a small ring of their own) when the group would hold at least two.</summary>
+    private static readonly (string Id, string Glyph, string En, string Ru, string[] Members)[] Groups =
+    [
+    ];
+
+    private static List<RadialItem> Grouped(List<RadialItem> items)
     {
-        var kind = KindOf(d);
+        foreach (var group in Groups)
+        {
+            var members = items.Where(i => group.Members.Contains(i.Id)).ToList();
+            if (members.Count < 2)
+                continue;
+            var at = items.IndexOf(members[0]);
+            items.RemoveAll(members.Contains);
+            items.Insert(Math.Min(at, items.Count), new RadialItem(group.Id, group.Glyph, T(group.En, group.Ru), () => { }, Navigates: true, Children: members));
+        }
+        return items;
+    }
+
+    private static int UsageOf(RadialItem item) =>
+        item.Children is { } children ? children.Sum(UsageOf) : Settings.Current.Usage.GetValueOrDefault(item.Id);
+
+    private static IEnumerable<RadialItem> CustomItems(Detected d, FileKind kind, bool sample = false)
+    {
         foreach (var command in Settings.Current.Commands)
         {
-            if (command.Name.Length == 0 || command.Command.Length == 0 || !Applies(command, d, kind))
+            if (command.Name.Length == 0 || command.Command.Length == 0 || !Applies(command, d, kind, sample))
                 continue;
             var captured = command;
             yield return new RadialItem(command.Id, command.Glyph, command.Name, () => RunCustom(captured, d));
         }
     }
 
-    private static bool Applies(CustomCommand command, Detected d, FileKind kind)
+    private static bool Applies(CustomCommand command, Detected d, FileKind kind, bool sample = false)
     {
         if (!d.HasSelection)
             return command.AppliesTo is "any" or "background";
@@ -249,7 +363,7 @@ internal static class Menus
         var folder = kind is FileKind.Folder or FileKind.GitRepo;
         if (command.AppliesTo == "background" || (command.AppliesTo == "folder" && !folder) || (command.AppliesTo == "file" && folder))
             return false;
-        if (folder || command.Extensions.Trim().Length == 0)
+        if (folder || sample || command.Extensions.Trim().Length == 0)
             return true;
         var wanted = command.Extensions.Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries)
             .Select(e => "." + e.TrimStart('.'))
@@ -265,7 +379,9 @@ internal static class Menus
             .Replace("{paths}", string.Join(" ", d.Paths.Select(p => $"\"{p}\"")))
             .Replace("{path}", first)
             .Replace("{folder}", folder)
-            .Replace("{name}", Path.GetFileName(first));
+            .Replace("{name}", Path.GetFileName(first))
+            .Replace("{stem}", Path.GetFileNameWithoutExtension(first))
+            .Replace("{ext}", Path.GetExtension(first).TrimStart('.'));
         var info = new ProcessStartInfo(Expand(command.Command))
         {
             Arguments = Expand(command.Arguments),
@@ -322,7 +438,8 @@ internal static class Menus
     private static void SetWallpaper(string path) => SystemParametersInfo(0x0014, 0, path, 0x01 | 0x02);
 
     private static void Mount(string path) =>
-        Launch(new ProcessStartInfo("powershell.exe", $"-NoProfile -Command \"Mount-DiskImage -ImagePath '{path.Replace("'", "''")}'\"") { UseShellExecute = false, CreateNoWindow = true });
+        _ = RunTool("powershell.exe", ["-NoProfile", "-Command", $"Mount-DiskImage -ImagePath '{path.Replace("'", "''")}' -ErrorAction Stop | Out-Null"],
+            T("Mount", "Монтирование"), T($"Mounted {Path.GetFileName(path)}", $"Смонтирован {Path.GetFileName(path)}"));
 
     /// <summary>Extracts into a folder named after the archive, using the tar.exe that ships with Windows.</summary>
     private static void Extract(string path)
@@ -330,7 +447,21 @@ internal static class Menus
         var parent = Path.GetDirectoryName(path)!;
         var target = UniquePath(parent, Path.GetFileNameWithoutExtension(path), "");
         Directory.CreateDirectory(target);
-        Launch(new ProcessStartInfo("tar.exe", $"-xf \"{path}\" -C \"{target}\"") { UseShellExecute = false, CreateNoWindow = true });
+        _ = RunTool("tar.exe", ["-xf", path, "-C", target], T("Extract", "Распаковка"), T($"Extracted to {Path.GetFileName(target)}", $"Распаковано в {Path.GetFileName(target)}"));
+    }
+
+    /// <summary>Runs a console tool in the background and tells the user how it ended (success text, or the tool's own error).</summary>
+    private static async Task RunTool(string exe, string[] args, string title, string success)
+    {
+        try
+        {
+            var (code, errors) = await Converters.ProcessRunner.RunAsync(exe, args, CancellationToken.None);
+            Notifier.Show(title, code == 0 ? success : T("Failed: ", "Не получилось: ") + (errors.Length > 0 ? errors : $"exit code {code}"));
+        }
+        catch (Exception ex) when (ex is Converters.ConvertException or IOException)
+        {
+            Notifier.Show(title, ex.Message);
+        }
     }
 
     internal static string UniquePath(string parent, string name, string extension)
@@ -346,7 +477,8 @@ internal static class Menus
         try
         {
             var parent = Path.GetDirectoryName(paths[0])!;
-            var name = Path.GetFileName(parent.TrimEnd('\\'));
+            // One item: the zip is named after it; several: after the folder they are in.
+            var name = paths.Count == 1 ? Path.GetFileNameWithoutExtension(paths[0].TrimEnd('\\')) : Path.GetFileName(parent.TrimEnd('\\'));
             var target = UniquePath(parent, name.Length > 0 ? name : "Archive", ".zip");
             using (var zip = ZipFile.Open(target, ZipArchiveMode.Create))
             {
@@ -357,8 +489,19 @@ internal static class Menus
                         zip.CreateEntryFromFile(path, Path.GetFileName(path));
                         continue;
                     }
-                    foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
-                        zip.CreateEntryFromFile(file, Path.GetRelativePath(parent, file).Replace('\\', '/'));
+                    foreach (var entry in Directory.EnumerateFileSystemEntries(path, "*", SearchOption.AllDirectories))
+                    {
+                        var relative = Path.GetRelativePath(parent, entry).Replace('\\', '/');
+                        if (Directory.Exists(entry))
+                        {
+                            if (!Directory.EnumerateFileSystemEntries(entry).Any())
+                                zip.CreateEntry(relative + "/"); // keep empty folders
+                        }
+                        else
+                        {
+                            zip.CreateEntryFromFile(entry, relative);
+                        }
+                    }
                 }
             }
             Notifier.Show("Radii", T($"Created {Path.GetFileName(target)}", $"Создан {Path.GetFileName(target)}"));

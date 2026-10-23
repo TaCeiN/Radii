@@ -72,6 +72,7 @@ internal sealed class CompressWindow : EditorWindow
 
     private readonly FileListPanel _list;
     private readonly TextBox _target = new() { Text = "500", Width = 84, TextAlignment = TextAlignment.Center };
+    private readonly List<(Button Chip, int Kb)> _presets = [];
 
     public CompressWindow(IReadOnlyList<string> paths) : base(T("Compress photo", "Сжать фото"), 540, 300, T("Compress", "Сжать"))
     {
@@ -105,14 +106,34 @@ internal sealed class CompressWindow : EditorWindow
             var chip = Chip(label, () => _target.Text = kb.ToString(CultureInfo.InvariantCulture));
             chip.Margin = new Thickness(0, 0, 4, 0);
             chip.Padding = new Thickness(8, 3, 8, 3);
+            chip.MinWidth = 62;
+            _presets.Add((chip, kb));
             chips.Children.Add(chip);
         }
-        _target.Width = 64;
-        chips.Children.Add(_target);
-        chips.Children.Add(new TextBlock { Text = "KB", Foreground = Muted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
+        _target.TextChanged += (_, _) => HighlightPresets();
+        HighlightPresets();
+
+        // The typed size sits in its own framed box with the unit inside, so it cannot be taken for another preset button.
+        _target.Width = 70;
+        _target.MaxLength = 6;
+        _target.Background = CanvasBrush;
+        _target.BorderBrush = LineBrush;
+        _target.VerticalContentAlignment = VerticalAlignment.Center;
+        var custom = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        custom.Children.Add(_target);
+        custom.Children.Add(new TextBlock { Text = T("KB", "КБ"), Foreground = Muted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) });
+
+        var sizes = new StackPanel
+        {
+            Children =
+            {
+                Row(T("Up to", "Не больше"), chips),
+                Row(T("Exactly", "Свой размер"), custom, top: 6),
+            },
+        };
 
         MinHeight = 0;
-        FitHeight(520);
+        FitHeight(560);
         Body = new StackPanel
         {
             Margin = new Thickness(16, 12, 16, 8),
@@ -120,7 +141,7 @@ internal sealed class CompressWindow : EditorWindow
             {
                 toolbar,
                 _list,
-                new Border { Margin = new Thickness(0, 10, 0, 0), Child = Card(Row(T("Size of each", "Размер каждого"), chips), new Thickness(12, 8, 12, 8)) },
+                new Border { Margin = new Thickness(0, 10, 0, 0), Child = Card(sizes, new Thickness(14, 8, 14, 10)) },
             },
         };
 
@@ -158,7 +179,11 @@ internal sealed class CompressWindow : EditorWindow
                 }
                 catch (Exception ex) when (ex is NotSupportedException or FileFormatException or IOException or InvalidOperationException)
                 {
-                    entry.Error = T("Could not read the picture", "Не удалось прочитать картинку");
+                    // No Windows codec (WebP/HEIC...): ImageMagick will read it on save, so only the size is known now.
+                    if (Engines.IsInstalled(Engine.Magick) && ImageTools.IsPicture(path))
+                        entry.Detail = ImageTools.Size(new FileInfo(path).Length);
+                    else
+                        entry.Error = T("Could not read the picture", "Не удалось прочитать картинку");
                 }
                 Dispatcher.Invoke(() =>
                 {
@@ -172,6 +197,13 @@ internal sealed class CompressWindow : EditorWindow
 
     private void UpdateHint() =>
         SetHint(T($"Photos: {_list.Entries.Count}", $"Фото: {_list.Entries.Count}"));
+
+    private void HighlightPresets()
+    {
+        var kb = TargetBytes / 1000;
+        foreach (var (chip, value) in _presets)
+            Mark(chip, kb == value);
+    }
 
     private long TargetBytes => long.TryParse(_target.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var kb) && kb >= 10 ? kb * 1000 : 0;
 

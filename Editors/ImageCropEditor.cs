@@ -14,7 +14,7 @@ namespace Radii.Editors;
 /// <summary>Crop, rotate and flip a picture. The result is a new file next to the original (EXIF is dropped, orientation is baked in).</summary>
 internal sealed class ImageCropEditor : IEditor
 {
-    internal static readonly HashSet<string> Inputs = new(["png", "jpg", "jpeg", "bmp", "tif", "tiff"], StringComparer.OrdinalIgnoreCase);
+    internal static HashSet<string> Inputs => ImageTools.Inputs;
 
     public string Caption => T("Crop photo", "Обрезка фото");
 
@@ -45,7 +45,7 @@ internal sealed class CropWindow : EditorWindow
     public CropWindow(string path) : base(T("Crop photo", "Обрезка фото") + " · " + Path.GetFileName(path), 760, 500, T("Save a copy", "Сохранить копию"))
     {
         _path = path;
-        _ext = Path.GetExtension(path).TrimStart('.').ToLowerInvariant() switch { "jpeg" => "jpg", "tif" => "tiff", var e => e };
+        _ext = ImageTools.OutExt(path);
         try
         {
             _original = Wic.Load(path);
@@ -132,9 +132,9 @@ internal sealed class CropWindow : EditorWindow
         AddChip(chips, "9:16", () => 9.0 / 16);
 
         var tools = new StackPanel { Orientation = Orientation.Horizontal };
-        tools.Children.Add(Tool("↺", T("Rotate left", "Повернуть влево"), () => Rotate(270)));
-        tools.Children.Add(Tool("↻", T("Rotate right", "Повернуть вправо"), () => Rotate(90)));
-        tools.Children.Add(Tool("⇆", T("Flip horizontally", "Отразить по горизонтали"), Flip));
+        tools.Children.Add(Tool("left", T("Rotate left", "Повернуть влево"), () => Rotate(270)));
+        tools.Children.Add(Tool("right", T("Rotate right", "Повернуть вправо"), () => Rotate(90)));
+        tools.Children.Add(Tool("flip", T("Flip horizontally", "Отразить по горизонтали"), Flip));
         ((FrameworkElement)tools.Children[^1]).Margin = new Thickness(0);
 
         _width.Width = 70;
@@ -167,15 +167,35 @@ internal sealed class CropWindow : EditorWindow
         host.Children.Add(button);
     }
 
-    private Button Tool(string glyph, string tip, Action action)
+    /// <summary>Icon button; the pictures are drawn as paths (a symbol font renders them tiny and differently from one machine to the next).</summary>
+    private Button Tool(string icon, string tip, Action action)
     {
+        var path = new System.Windows.Shapes.Path
+        {
+            Data = Geometry.Parse(icon switch
+            {
+                "flip" => "M12,3 V21 M9,7 L3,17 H9 Z M15,7 L21,17 H15 Z",
+                _ => "M19,12 A7,7 0 1 1 12,5 M12,1.5 L16,5 L12,8.5",
+            }),
+            StrokeThickness = 1.8,
+            StrokeLineJoin = PenLineJoin.Round,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            Width = 24,
+            Height = 24,
+            Stretch = Stretch.None,
+        };
+        if (icon == "left")
+            path.RenderTransform = new ScaleTransform(-1, 1) { CenterX = 12 };
         var button = new Button
         {
-            Content = new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe UI Symbol, Segoe UI"), FontSize = 17 },
+            Content = path,
             ToolTip = tip,
             Width = 36,
+            Padding = new Thickness(0),
             Margin = new Thickness(0, 0, 6, 0),
         };
+        path.SetBinding(System.Windows.Shapes.Shape.StrokeProperty, new System.Windows.Data.Binding("Foreground") { Source = button });
         button.Click += (_, _) => action();
         return button;
     }

@@ -53,7 +53,8 @@ internal sealed class MenuController
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // A failed detection must never leave the user without a context menu: Shift + right click still works.
+            // A failed detection must never leave the user without a context menu: the flyout still has the Windows menu.
+            Program.LogCrash(ex);
         }
     }
 }

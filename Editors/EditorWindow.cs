@@ -28,13 +28,13 @@ internal abstract class EditorWindow : Window
         var theme = Theme.Current();
         Dark = theme.Dark;
         _acrylic = theme.Acrylic && Environment.OSVersion.Version.Build >= 22621;
-        Muted = Hex(Dark ? "#B0B0B0" : "#616161");
+        Muted = Hex(Skin.Muted(Dark));
         // With the system backdrop the window and panels are translucent so the blur shows through (like the ring).
-        PanelBrush = Hex(Dark ? (_acrylic ? "#1FFFFFFF" : "#2B2B2B") : (_acrylic ? "#99FFFFFF" : "#FBFBFB"));
-        CanvasBrush = Hex(Dark ? (_acrylic ? "#59000000" : "#181818") : (_acrylic ? "#14000000" : "#E6E6E6"));
-        LineBrush = Hex(Dark ? "#3A3A3A" : "#E0E0E0");
+        PanelBrush = Hex(Dark ? (_acrylic ? "#14FFFFFF" : Skin.Card(Dark)) : (_acrylic ? "#B3FFFFFF" : Skin.Card(Dark)));
+        CanvasBrush = Hex(Dark ? (_acrylic ? "#59000000" : Skin.Canvas(Dark)) : (_acrylic ? "#14000000" : Skin.Canvas(Dark)));
+        LineBrush = Hex(Skin.Line(Dark));
         AccentBrush = new SolidColorBrush(theme.Accent);
-        DangerBrush = Hex(Dark ? "#FF8A80" : "#C42B1C");
+        DangerBrush = Hex(Skin.Danger(Dark));
 
         Title = title;
         Width = width;
@@ -44,25 +44,18 @@ internal abstract class EditorWindow : Window
         Topmost = true;
         ShowInTaskbar = true;
         WindowStartupLocation = WindowStartupLocation.Manual;
-        Background = Hex(Dark ? "#202020" : "#F3F3F3");
+        Background = Hex(Skin.Window(Dark));
         if (_acrylic)
         {
-            // Like the ring: a screenshot of what is behind, blurred, under a tint. Taken now, before the window is shown.
-            Native.GetCursorPos(out var cursor);
-            var screen = System.Windows.Forms.Screen.FromPoint(new System.Drawing.Point(cursor.X, cursor.Y)).Bounds;
-            _shotArea = screen;
-            _shot = Backdrop.Grab(screen.Left, screen.Top, screen.Width, screen.Height);
-            _acrylic = _shot is not null;
-            if (_acrylic)
+            // The system's own acrylic (Windows 11 22H2+): live, always lined up with what is behind the window, no screenshots.
+            Background = System.Windows.Media.Brushes.Transparent;
+            SourceInitialized += (_, _) =>
             {
-                SourceInitialized += (_, _) => SetDarkCaption();
-                Loaded += (_, _) => PositionGlass();
-                LocationChanged += (_, _) => PositionGlass();
-                SizeChanged += (_, _) => PositionGlass();
-                DpiChanged += (_, _) => PositionGlass();
-            }
+                SetDarkCaption();
+                ApplyBackdrop();
+            };
         }
-        Foreground = Hex(Dark ? "#FFFFFF" : "#1B1B1B");
+        Foreground = Hex(Skin.Text(Dark));
         FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI");
         FontSize = 14;
         UseLayoutRounding = true;
@@ -127,17 +120,7 @@ internal abstract class EditorWindow : Window
             var outer = new Grid();
             outer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32) });
             outer.RowDefinitions.Add(new RowDefinition());
-            _glassImage = new Image
-            {
-                Source = _shot,
-                Stretch = Stretch.Fill,
-                Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 40, KernelType = System.Windows.Media.Effects.KernelType.Gaussian, RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance },
-            };
-            var glass = new Canvas { ClipToBounds = true, IsHitTestVisible = false };
-            glass.Children.Add(_glassImage);
-            Grid.SetRowSpan(glass, 2);
-            outer.Children.Add(glass);
-            var tint = new Border { Background = Hex(Dark ? "#99181818" : "#99F3F3F3"), IsHitTestVisible = false };
+            var tint = new Border { Background = Hex(Skin.WithAlpha(Skin.Window(Dark), Dark ? 0x99 : 0xB8)), IsHitTestVisible = false };
             Grid.SetRowSpan(tint, 2);
             outer.Children.Add(tint);
             outer.Children.Add(caption);
@@ -166,9 +149,6 @@ internal abstract class EditorWindow : Window
     }
 
     private bool _acrylic;
-    private ImageSource? _shot;
-    private System.Drawing.Rectangle _shotArea;
-    private Image? _glassImage;
 
     /// <summary>Dark caption buttons for the dark theme.</summary>
     private void SetDarkCaption()
@@ -178,19 +158,14 @@ internal abstract class EditorWindow : Window
         DwmSetWindowAttribute(handle, 20, ref dark, sizeof(int)); // IMMERSIVE_DARK_MODE
     }
 
-    /// <summary>Keeps the blurred screenshot aligned with the screen, so the window looks like frosted glass wherever it is moved.</summary>
-    private void PositionGlass()
+    /// <summary>Asks DWM for the acrylic backdrop (DWMWA_SYSTEMBACKDROP_TYPE = transient window) and lets it through the WPF surface.</summary>
+    private void ApplyBackdrop()
     {
-        if (_glassImage is null || _shot is null)
-            return;
         var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-        if (handle == IntPtr.Zero || !Native.GetWindowRect(handle, out var rect))
-            return;
-        var dpi = VisualTreeHelper.GetDpi(this);
-        _glassImage.Width = _shotArea.Width / dpi.DpiScaleX;
-        _glassImage.Height = _shotArea.Height / dpi.DpiScaleY;
-        Canvas.SetLeft(_glassImage, (_shotArea.Left - rect.Left) / dpi.DpiScaleX);
-        Canvas.SetTop(_glassImage, (_shotArea.Top - rect.Top) / dpi.DpiScaleY);
+        if (System.Windows.Interop.HwndSource.FromHwnd(handle)?.CompositionTarget is { } target)
+            target.BackgroundColor = System.Windows.Media.Colors.Transparent;
+        var type = 3;
+        DwmSetWindowAttribute(handle, 38, ref type, sizeof(int));
     }
 
     [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
@@ -306,7 +281,7 @@ internal abstract class EditorWindow : Window
         Background = PanelBrush,
         BorderBrush = LineBrush,
         BorderThickness = new Thickness(1),
-        CornerRadius = new CornerRadius(8),
+        CornerRadius = new CornerRadius(12),
         Padding = padding ?? new Thickness(14, 12, 14, 12),
         Child = child,
     };
@@ -385,13 +360,28 @@ internal abstract class EditorWindow : Window
         return button;
     }
 
+    /// <summary>Draws a preset chip as picked (accent fill) or plain.</summary>
+    protected static void Mark(Button chip, bool on)
+    {
+        if (on)
+        {
+            chip.SetResourceReference(Control.BackgroundProperty, "SkAccent");
+            chip.SetResourceReference(Control.ForegroundProperty, "SkOnAccent");
+        }
+        else
+        {
+            chip.ClearValue(Control.BackgroundProperty);
+            chip.ClearValue(Control.ForegroundProperty);
+        }
+    }
+
     /// <summary>Preview area: dark rounded canvas that clips its child.</summary>
     protected Border PreviewBox(UIElement child) => new()
     {
         Background = CanvasBrush,
         BorderBrush = LineBrush,
         BorderThickness = new Thickness(1),
-        CornerRadius = new CornerRadius(8),
+        CornerRadius = new CornerRadius(12),
         ClipToBounds = true,
         Child = child,
     };
@@ -521,12 +511,19 @@ internal abstract class EditorWindow : Window
         content.BeginAnimation(OpacityProperty, fade);
     }
 
+    private static (Native.RECT Monitor, Native.RECT Work) MonitorAt(Native.POINT point)
+    {
+        var info = new Native.MONITORINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<Native.MONITORINFO>() };
+        Native.GetMonitorInfo(Native.MonitorFromPoint(point, 2), ref info);
+        return (info.rcMonitor, info.rcWork);
+    }
+
     private void PlaceOnCursorMonitor()
     {
         // All coordinates are physical pixels (per-monitor DPI aware process).
         Native.GetCursorPos(out var point);
-        var screen = System.Windows.Forms.Screen.FromPoint(new System.Drawing.Point(point.X, point.Y));
-        var area = screen.WorkingArea;
+        var work = MonitorAt(point).Work;
+        var area = new System.Drawing.Rectangle(work.Left, work.Top, work.Right - work.Left, work.Bottom - work.Top);
         var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
         Native.GetWindowRect(handle, out var rect);
         var width = rect.Right - rect.Left;
@@ -614,7 +611,7 @@ internal abstract class EditorWindow : Window
         using (var context = backdrop.RenderOpen())
         {
             // Snapshots have no blur behind them: paint an opaque base under the translucent colours.
-            context.DrawRectangle(Hex(Dark ? "#1B1B1B" : "#E4E4E4"), null, new Rect(0, 0, element.ActualWidth, element.ActualHeight));
+            context.DrawRectangle(Hex(Skin.Canvas(Dark)), null, new Rect(0, 0, element.ActualWidth, element.ActualHeight));
             context.DrawRectangle(Background, null, new Rect(0, 0, element.ActualWidth, element.ActualHeight));
         }
         bitmap.Render(backdrop);

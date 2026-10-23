@@ -158,11 +158,57 @@ internal static class Wic
 {
     public static BitmapSource Load(string path)
     {
+        try
+        {
+            return LoadDirect(path);
+        }
+        catch (Exception ex) when (ex is NotSupportedException or FileFormatException or InvalidOperationException && Engines.IsInstalled(Engine.Magick))
+        {
+            // No Windows codec for this format (WebP/HEIC/AVIF extensions missing...): let ImageMagick make a PNG of it.
+            var temp = Path.Combine(Path.GetTempPath(), "rc-" + Guid.NewGuid().ToString("N") + ".png");
+            try
+            {
+                var magick = Engines.EnsureAsync(Engine.Magick, new ConvertContext(CancellationToken.None, (_, _) => { })).GetAwaiter().GetResult();
+                var (code, _) = Task.Run(() => ProcessRunner.RunAsync(magick, [path + "[0]", "-auto-orient", temp], CancellationToken.None)).GetAwaiter().GetResult();
+                if (code != 0 || !File.Exists(temp))
+                    throw;
+                return LoadDirect(temp);
+            }
+            finally
+            {
+                try
+                {
+                    File.Delete(temp);
+                }
+                catch (IOException)
+                {
+                }
+            }
+        }
+    }
+
+    private static BitmapSource LoadDirect(string path)
+    {
         using var stream = File.OpenRead(path);
         var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
         var frame = decoder.Frames[0];
         frame.Freeze();
         return frame;
+    }
+
+    /// <summary>True when Windows itself can decode the file (checked on the header only).</summary>
+    public static bool CanOpen(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            _ = BitmapDecoder.Create(stream, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None).Frames.Count;
+            return true;
+        }
+        catch (Exception ex) when (ex is NotSupportedException or FileFormatException or InvalidOperationException or IOException)
+        {
+            return false;
+        }
     }
 
     public static void Save(BitmapSource source, string ext, string output)

@@ -16,7 +16,7 @@
     <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
     <SatelliteResourceLanguages>en;ru</SatelliteResourceLanguages>
     <NoWarn>$(NoWarn);WFO0003;WPF0001</NoWarn>
-    <Version>0.4.1</Version>
+    <Version>0.4.2</Version>
     <ApplicationIcon>assets\app.ico</ApplicationIcon>
     <Company>TaCeiN</Company>
     <Product>Radii</Product>

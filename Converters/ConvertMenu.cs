@@ -94,8 +94,9 @@ internal static class ConvertMenu
             if (format.Children is { } children)
             {
                 var sub = children.Select(c => new Offer(c, converter is MoreConverter more ? more.ConverterFor(c) : converter)).ToList();
-                items.Add(new RadialItem("conv:" + format.Id, format.Glyph ?? format.Label, format.Caption,
-                    () => ConvertHost.Show?.Invoke(WithBack(Items(sub, paths, format.Caption, context)), format.Caption, context), Navigates: true));
+                // A group sector: the window opens its ring (with "Back"), and the search looks inside it.
+                items.Add(new RadialItem("conv:" + format.Id, format.Glyph ?? format.Label, format.Caption, () => { }, Navigates: true,
+                    Children: Items(sub, paths, format.Caption, context)));
             }
             else
             {

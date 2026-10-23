@@ -20,10 +20,20 @@ internal static class Program
         // Diagnostics that need no hook and no tray: render previews, dump a shell menu.
         if (args.Length >= 2 && args[0] == "--snapshot")
             return Snapshot.Render(args[1]);
+        if (args.Length >= 2 && args[0] == "--snapshot-all")
+            return Snapshot.RenderAll(args[1]);
         if (args.Length >= 2 && args[0] == "--snapshot-chips")
             return Snapshot.RenderChips(args[1]);
         if (args.Length >= 3 && args[0] == "--snapshot-flyout")
             return Snapshot.RenderFlyout(args[1], args[2]);
+        if (args.Length >= 2 && args[0] == "--snapshot-ring-editor")
+        {
+            // --snapshot-ring-editor out.png [context] [selected sector]
+#pragma warning disable WPF0001
+            _ = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown, ThemeMode = ThemeMode.System };
+#pragma warning restore WPF0001
+            return RingEditorWindow.RenderTo(args[1], args.Length > 2 ? args[2] : null, args.Length > 3 ? int.Parse(args[3]) : 0);
+        }
         if (args.Length >= 2 && args[0] == "--snapshot-settings")
         {
 #pragma warning disable WPF0001
@@ -152,12 +162,18 @@ internal static class Program
         return 0;
     }
 
-    internal static void LogCrash(Exception exception)
+    internal static void LogCrash(Exception exception) => Log(exception.ToString());
+
+    /// <summary>Appends a line to %APPDATA%\Radii\errors.log (trimmed when it grows past 512 KB). For errors that are swallowed on purpose.</summary>
+    internal static void Log(string text)
     {
         try
         {
             Directory.CreateDirectory(Settings.Folder);
-            File.AppendAllText(Path.Combine(Settings.Folder, "errors.log"), $"{DateTime.Now:s}{Environment.NewLine}{exception}{Environment.NewLine}{Environment.NewLine}");
+            var file = Path.Combine(Settings.Folder, "errors.log");
+            if (File.Exists(file) && new FileInfo(file).Length > 512 * 1024)
+                File.Move(file, file + ".old", overwrite: true);
+            File.AppendAllText(file, $"{DateTime.Now:s}{Environment.NewLine}{text}{Environment.NewLine}{Environment.NewLine}");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

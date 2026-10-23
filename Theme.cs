@@ -3,26 +3,28 @@ using Microsoft.Win32;
 
 namespace Radii;
 
-/// <summary>Windows 11 look: follows the system light/dark mode and accent colour (or the user's override).</summary>
+/// <summary>Radii look: follows the system light/dark mode; the colours are our own (<see cref="Skin"/>), not the Windows accent.</summary>
 internal sealed class Theme
 {
-    public Theme(bool dark, Color accent, bool acrylic = false)
+    public Theme(bool dark, bool acrylic = false)
     {
         Dark = dark;
-        Accent = accent;
+        Accent = Skin.Accent(dark);
         Acrylic = acrylic;
+        Skin.Apply(dark);
+        var card = (Color)ColorConverter.ConvertFromString(Skin.Card(dark));
         // With the blurred backdrop the sectors are more transparent so the blur shows through.
         var alpha = acrylic ? (byte)0x9C : (byte)0xF2;
-        Sector = Frozen(dark ? Color.FromArgb(alpha, 0x2C, 0x2C, 0x2C) : Color.FromArgb(alpha, 0xF9, 0xF9, 0xF9));
-        Border = Frozen(dark ? Color.FromArgb(0x38, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x24, 0x00, 0x00, 0x00));
-        Text = Frozen(dark ? Colors.White : Color.FromRgb(0x1B, 0x1B, 0x1B));
-        TextMuted = Frozen(dark ? Color.FromRgb(0xC8, 0xC8, 0xC8) : Color.FromRgb(0x5A, 0x5A, 0x5A));
-        Hover = Frozen(accent);
-        DangerHover = Frozen(Color.FromRgb(0xC4, 0x2B, 0x1C));
-        OnAccent = Frozen(Colors.White);
+        Sector = Frozen(Color.FromArgb(alpha, card.R, card.G, card.B));
+        Border = Frozen(dark ? Color.FromArgb(0x3A, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x26, 0, 0, 0));
+        Text = Frozen((Color)ColorConverter.ConvertFromString(Skin.Text(dark)));
+        TextMuted = Frozen((Color)ColorConverter.ConvertFromString(Skin.Muted(dark)));
+        Hover = Frozen(Accent);
+        DangerHover = Frozen(Color.FromRgb(0xC6, 0x2F, 0x2A));
+        OnAccent = Frozen(Skin.OnAccent(dark));
         // Opaque: text from the window below showed through the list otherwise.
-        FlyoutBackground = Frozen(dark ? Color.FromRgb(0x2B, 0x2B, 0x2B) : Color.FromRgb(0xFA, 0xFA, 0xFA));
-        RowHover = Frozen(dark ? Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x12, 0x00, 0x00, 0x00));
+        FlyoutBackground = Frozen(Skin.Blend(card, dark ? Colors.White : Colors.Black, dark ? 0.03 : 0.01));
+        RowHover = Frozen(dark ? Color.FromArgb(0x1C, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x14, 0, 0, 0));
     }
 
     public bool Dark { get; }
@@ -51,31 +53,20 @@ internal sealed class Theme
         }
     }
 
-    public static Color SystemAccent()
+    /// <summary>Dark or light as the user chose it in the settings (system by default).</summary>
+    public static bool UserDark()
     {
-        try
-        {
-            using var dwm = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\DWM");
-            if (dwm?.GetValue("AccentColor") is int abgr)
-                return Color.FromRgb((byte)(abgr & 0xFF), (byte)((abgr >> 8) & 0xFF), (byte)((abgr >> 16) & 0xFF));
-        }
-        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException)
-        {
-        }
-        return Color.FromRgb(0x00, 0x78, 0xD4);
-    }
-
-    public static Theme Current()
-    {
-        var settings = Settings.Current;
-        var dark = settings.Theme switch
+        var dark = Settings.Current.Theme switch
         {
             "dark" => true,
             "light" => false,
             _ => SystemDark(),
         };
-        return new Theme(dark, SystemAccent(), settings.Acrylic);
+        Skin.Apply(dark);
+        return dark;
     }
+
+    public static Theme Current() => new(UserDark(), Settings.Current.Acrylic);
 
     private static Brush Frozen(Color color)
     {

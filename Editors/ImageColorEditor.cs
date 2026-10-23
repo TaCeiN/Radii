@@ -103,7 +103,7 @@ internal sealed class ColorWindow : EditorWindow
     public ColorWindow(string path) : base(T("Colour grade", "Цвет и свет") + " · " + Path.GetFileName(path), 820, 640, T("Save a copy", "Сохранить копию"))
     {
         _path = path;
-        _ext = Path.GetExtension(path).TrimStart('.').ToLowerInvariant() switch { "jpeg" => "jpg", "tif" => "tiff", var e => e };
+        _ext = ImageTools.OutExt(path);
         try
         {
             _frame = Wic.Load(path);
@@ -326,7 +326,7 @@ internal sealed class ColorWindow : EditorWindow
             Height = 38,
             CornerRadius = new CornerRadius(19),
             Margin = new Thickness(6, 0, 0, 0),
-            Background = Hex(Dark ? "#99202020" : "#99FFFFFF"),
+            Background = Hex(Skin.WithAlpha(Skin.Card(Dark), 0xB3)),
             BorderBrush = LineBrush,
             BorderThickness = new Thickness(1),
             Cursor = Cursors.Hand,

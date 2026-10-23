@@ -29,7 +29,7 @@ internal sealed class AudioTrimEditor : IEditor
 /// <summary>Cut a piece out of a video: timeline with the sound's waveform, preview frame, fast copy or an exact re-encode.</summary>
 internal sealed class VideoTrimEditor : IEditor
 {
-    internal static readonly HashSet<string> Inputs = new(["mp4", "mkv", "avi", "mov", "webm", "wmv", "m4v", "mpg", "mpeg", "ts"], StringComparer.OrdinalIgnoreCase);
+    internal static readonly HashSet<string> Inputs = new(["mp4", "mkv", "avi", "mov", "webm", "wmv", "m4v", "mpg", "mpeg", "ts", "mts", "m2ts", "flv", "f4v", "3gp", "3g2", "ogv", "vob", "asf"], StringComparer.OrdinalIgnoreCase);
 
     public string Caption => T("Trim video", "Обрезка видео");
 
@@ -222,7 +222,7 @@ internal sealed class TrimWindow : EditorWindow
         _wave.SetSelection(start, end);
     }
 
-    private static TextBox Field() => new() { Width = 78, TextAlignment = TextAlignment.Center };
+    private static TextBox Field() => new() { Width = 100, TextAlignment = TextAlignment.Center };
 
     private static string N(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
 
@@ -266,8 +266,8 @@ internal sealed class TrimWindow : EditorWindow
             await ShowFrameAsync(0, immediate: true);
     }
 
-    /// <summary>Mono 8 kHz samples from FFmpeg, reduced to one peak per 40 ms.</summary>
-    private static async Task<(float[] Peaks, double Duration)> DecodeAsync(string ffmpeg, string path, CancellationToken cancel)
+    /// <summary>Mono 8 kHz samples from FFmpeg, reduced to one peak per 40 ms; <paramref name="normalize"/> stretches them to the loudest one.</summary>
+    internal static async Task<(float[] Peaks, double Duration)> DecodeAsync(string ffmpeg, string path, CancellationToken cancel, bool normalize = true)
     {
         var info = new ProcessStartInfo(ffmpeg) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
         foreach (var argument in new[] { "-hide_banner", "-nostdin", "-v", "error", "-i", path, "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "-" })
@@ -331,6 +331,8 @@ internal sealed class TrimWindow : EditorWindow
             if (samples == 0)
                 throw new ConvertException(T("Could not read this audio: ", "Не удалось прочитать звук: ") + ProcessRunner.Reason(await errors));
 
+            if (!normalize)
+                return (peaks.ToArray(), samples / 8000.0);
             var loudest = peaks.Max();
             var data = peaks.Select(p => loudest < 0.0005f ? 0f : (float)Math.Pow(p / loudest, 0.7)).ToArray();
             return (data, samples / 8000.0);

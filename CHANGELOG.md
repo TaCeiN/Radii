@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.2
+
+- **New look.** Radii no longer follows the Windows accent colour: it has its own graphite palette (mono by default) and its own modern controls. Six colour schemes in Settings (graphite, amber, sage, terracotta, lime, slate), light and dark.
+- Editor windows use native Windows 11 acrylic instead of a screenshot of the screen behind them (the blur no longer shifts or breaks).
+- **Wider formats** in the editors: photos (WebP, HEIC, AVIF, JXL, TGA, PSD and more, opened through ImageMagick when Windows has no codec), audio and video lists extended.
+- Sound editor: the wave of the track, and volume, speed, loudness and silence changes are heard while the preview plays.
+- Compress photo: clear size presets and a separate field for your own size. Crop: clean rotate and flip icons. Time fields of the trim windows are no longer cut off.
+- Mode pills under the ring: highlighting works after switching the ring, pairs are exactly centred.
+- Removed "Split PDF" (merge, pages and compress stay).
+
 ## 0.4.1
 
 - Fixed: right click on files and folders on the Explorer Home page now selects the item and opens the ring for it (before, the ring was the empty-space one).

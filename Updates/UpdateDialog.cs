@@ -35,9 +35,9 @@ internal sealed class UpdateDialog : Window
 
     public UpdateDialog(UpdateInfo update, bool canInstall)
     {
-        var dark = Theme.SystemDark();
+        var dark = Theme.UserDark();
         Brush Brush(string hex) => (SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;
-        var muted = Brush(dark ? "#B0B0B0" : "#616161");
+        var muted = Brush(Skin.Muted(dark));
 
         Title = T("Radii update", "Обновление Radii");
         Width = 460;
@@ -45,8 +45,8 @@ internal sealed class UpdateDialog : Window
         ResizeMode = ResizeMode.NoResize;
         Topmost = true;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        Background = Brush(dark ? "#202020" : "#F3F3F3");
-        Foreground = Brush(dark ? "#FFFFFF" : "#1B1B1B");
+        Background = Brush(Skin.Window(dark));
+        Foreground = Brush(Skin.Text(dark));
         FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI");
         FontSize = 14;
 
@@ -68,8 +68,8 @@ internal sealed class UpdateDialog : Window
             {
                 Margin = new Thickness(0, 12, 0, 0),
                 Padding = new Thickness(12, 8, 12, 8),
-                CornerRadius = new CornerRadius(8),
-                Background = Brush(dark ? "#2B2B2B" : "#FFFFFF"),
+                CornerRadius = new CornerRadius(12),
+                Background = Brush(Skin.Card(dark)),
                 Child = new ScrollViewer
                 {
                     MaxHeight = 160,

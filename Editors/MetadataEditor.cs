@@ -11,7 +11,7 @@ namespace Radii.Editors;
 internal sealed class MetadataEditor : IEditor
 {
     internal static readonly HashSet<string> Images = new(["jpg", "jpeg", "png", "tif", "tiff", "webp", "bmp", "gif"], StringComparer.OrdinalIgnoreCase);
-    internal static readonly HashSet<string> Media = new(["mp3", "wav", "flac", "aac", "m4a", "ogg", "oga", "opus", "wma", "aiff", "aif", "mp4", "mkv", "avi", "mov", "webm", "wmv", "m4v", "mpg", "mpeg", "ts"], StringComparer.OrdinalIgnoreCase);
+    internal static readonly HashSet<string> Media = new(AudioJoinEditor.Inputs.Concat(VideoTrimEditor.Inputs), StringComparer.OrdinalIgnoreCase);
 
     public string Caption => T("Remove metadata", "Убрать метаданные");
 

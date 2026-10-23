@@ -40,57 +40,191 @@ internal sealed class FlyoutView : Border
             MaxHeight = maxHeight,
             Content = _rows,
         };
-        _scroll.PreviewMouseWheel += OnWheel;
-        Unloaded += (_, _) => StopSmoothing();
+        SmoothScroll.Attach(_scroll);
         Child = _scroll;
     }
 
     private readonly ScrollViewer _scroll;
-    private double _target;
-    private bool _smoothing;
 
-    // Smaller step per wheel notch (36 DIP instead of 48 * 3), eased towards the target so touchpad
-    // gestures (many tiny deltas) scroll fluidly instead of jumping.
-    private void OnWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+    private readonly List<Border> _selectable = [];
+    private Border? _selectedRow;
+
+    /// <summary>Draw the entries as a grid of icon tiles (the extensions list) instead of rows. Set before <see cref="Populate"/>.</summary>
+    public bool Tiles { get; set; }
+
+    private const double TileWidth = 86;
+    private const double TileHeight = 92;
+
+    // Phrases that only say "this program opens it": the tile shows the program name.
+    private static readonly string[] Lead =
+    [
+        "Открыть с помощью ", "Открыть в ", "Открыть как ", "Переименовать с помощью ", "Изменить с помощью ", "Open with ", "Open in ", "Open as ", "Edit with ", "Rename with ",
+    ];
+
+    private static string ShortLabel(string label)
     {
-        if (_scroll.ScrollableHeight <= 0)
-            return;
-        e.Handled = true;
-        if (!_smoothing)
-            _target = _scroll.VerticalOffset;
-        _target = Math.Clamp(_target - e.Delta * 0.3, 0, _scroll.ScrollableHeight);
-        if (!_smoothing)
+        foreach (var lead in Lead)
         {
-            _smoothing = true;
-            CompositionTarget.Rendering += Step;
+            if (label.StartsWith(lead, StringComparison.OrdinalIgnoreCase) && label.Length > lead.Length)
+                return label[lead.Length..];
         }
+        return label;
     }
 
-    private void Step(object? sender, EventArgs e)
+    // Handlers of the shell itself give the menu no picture; a Fluent glyph chosen by the words of the label is better than a letter.
+    private static readonly (string[] Words, string Glyph)[] GlyphGuesses =
+    [
+        (["свойства", "properties"], ""),
+        (["ярлык", "shortcut"], ""),
+        (["закрепить", "открепить", "pin to", "unpin"], ""),
+        (["поделиться", "share", "доступ"], ""),
+        (["восстановить", "restore", "предыдущ"], ""),
+        (["библиотек", "library"], ""),
+        (["отправить", "send to"], ""),
+        (["zip", "rar", "архив", "archive", "распаков", "extract"], ""),
+        (["терминал", "terminal", "powershell", "bash", "cmd"], ""),
+        (["создать", "new"], ""),
+        (["переимен", "rename"], ""),
+        (["печать", "print"], ""),
+        (["открыть", "open"], ""),
+        (["удалить", "delete"], ""),
+        (["копир", "copy"], ""),
+        (["сканир", "scan", "defender", "защитник"], ""),
+        (["вставить", "paste"], ""),
+    ];
+
+    private static string? GuessGlyph(string label)
     {
-        var current = _scroll.VerticalOffset;
-        var next = current + (_target - current) * 0.22;
-        if (Math.Abs(_target - next) < 0.4)
+        foreach (var (words, glyph) in GlyphGuesses)
         {
-            next = _target;
-            StopSmoothing();
+            foreach (var word in words)
+            {
+                if (label.Contains(word, StringComparison.OrdinalIgnoreCase))
+                    return glyph;
+            }
         }
-        _scroll.ScrollToVerticalOffset(next);
+        return null;
     }
 
-    private void StopSmoothing()
+    private void PopulateTiles(IReadOnlyList<ShellEntry> entries)
     {
-        if (!_smoothing)
-            return;
-        _smoothing = false;
-        CompositionTarget.Rendering -= Step;
+        var leaves = entries.Where(e => !e.IsSeparator).ToList();
+        var columns = leaves.Count <= 4 ? Math.Max(2, leaves.Count) : leaves.Count <= 9 ? 3 : 4;
+        var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = columns };
+        foreach (var entry in leaves)
+            grid.Children.Add(Tile(entry));
+        var width = columns * TileWidth + 10;
+        MinWidth = width;
+        MaxWidth = width;
+        _scroll.Content = grid;
+    }
+
+    private FrameworkElement Tile(ShellEntry entry)
+    {
+        var plate = new Border { Width = 38, Height = 38, CornerRadius = new CornerRadius(10), Background = _theme.RowHover, HorizontalAlignment = HorizontalAlignment.Center };
+        var source = entry.BigIcon ?? entry.Icon;
+        if (source is not null)
+        {
+            var size = entry.BigIcon is not null ? 26 : 20;
+            var image = new Image { Source = source, Width = size, Height = size, Opacity = entry.Disabled ? 0.45 : 1 };
+            RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
+            plate.Child = image;
+        }
+        else if (!string.IsNullOrEmpty(entry.Glyph) || GuessGlyph(entry.Label) is not null)
+        {
+            plate.Child = new TextBlock { Text = entry.Glyph ?? GuessGlyph(entry.Label), FontFamily = IconFont, FontSize = 18, Foreground = _theme.Text, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        }
+        else
+        {
+            // No icon at all: the first letter on the plate.
+            var letter = entry.Label.Trim().Length > 0 ? entry.Label.Trim()[..1].ToUpperInvariant() : "?";
+            plate.Child = new TextBlock { Text = letter, FontFamily = TextFont, FontSize = 16, FontWeight = FontWeights.SemiBold, Foreground = _theme.TextMuted, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        }
+
+        var label = new TextBlock
+        {
+            Text = ShortLabel(entry.Label),
+            FontFamily = TextFont,
+            FontSize = 11.5,
+            Foreground = entry.Disabled ? _theme.TextMuted : _theme.Text,
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxHeight = 34,
+            Margin = new Thickness(4, 5, 4, 0),
+        };
+        var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
+        stack.Children.Add(plate);
+        stack.Children.Add(label);
+        if (entry.HasChildren)
+        {
+            // A submenu parent: a small chevron in the corner of the plate; hovering opens the list beside the grid.
+            var chevron = new TextBlock { Text = "", FontFamily = IconFont, FontSize = 9, Foreground = _theme.TextMuted, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 4, 6, 0) };
+            var host = new Grid { Height = TileHeight };
+            host.Children.Add(stack);
+            host.Children.Add(chevron);
+            return TileShell(entry, host);
+        }
+        return TileShell(entry, stack);
+    }
+
+    private FrameworkElement TileShell(ShellEntry entry, UIElement content)
+    {
+        var tile = new Border
+        {
+            Width = TileWidth,
+            Height = TileHeight,
+            CornerRadius = new CornerRadius(8),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(0, 8, 0, 0),
+            Child = content,
+            ToolTip = entry.Label,
+            Opacity = entry.Disabled ? 0.6 : 1,
+        };
+        tile.MouseEnter += (_, _) =>
+        {
+            if (!entry.Disabled)
+                tile.Background = _theme.RowHover;
+            _hover(entry, this, tile);
+        };
+        tile.MouseLeave += (_, _) => tile.Background = Brushes.Transparent;
+        tile.MouseLeftButtonUp += (_, _) =>
+        {
+            if (!entry.Disabled && !entry.HasChildren)
+                _activate(entry);
+        };
+        return tile;
     }
 
     public void Populate(IReadOnlyList<ShellEntry> entries)
     {
+        if (Tiles)
+        {
+            PopulateTiles(entries);
+            return;
+        }
         _rows.Children.Clear();
+        _selectable.Clear();
+        _selectedRow = null;
         foreach (var entry in entries)
-            _rows.Children.Add(Row(entry));
+        {
+            var row = Row(entry);
+            _rows.Children.Add(row);
+            if (row is Border { Child: Grid } border)
+                _selectable.Add(border);
+        }
+    }
+
+    /// <summary>Highlights the n-th row (separators not counted) for keyboard use; -1 clears it.</summary>
+    public void SetSelected(int index)
+    {
+        if (_selectedRow is not null)
+            _selectedRow.Background = Brushes.Transparent;
+        _selectedRow = index >= 0 && index < _selectable.Count ? _selectable[index] : null;
+        if (_selectedRow is null)
+            return;
+        _selectedRow.Background = _theme.RowHover;
+        _selectedRow.BringIntoView();
     }
 
     private FrameworkElement Row(ShellEntry entry)
@@ -106,6 +240,10 @@ internal sealed class FlyoutView : Border
         if (entry.Icon is not null)
         {
             grid.Children.Add(new Image { Source = entry.Icon, Width = 16, Height = 16, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Opacity = entry.Disabled ? 0.45 : 1 });
+        }
+        else if (!string.IsNullOrEmpty(entry.Glyph))
+        {
+            grid.Children.Add(new TextBlock { Text = entry.Glyph, FontFamily = IconFont, FontSize = 15, Foreground = entry.Disabled ? _theme.TextMuted : _theme.Text, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
         }
         else if (entry.Checked)
         {
@@ -144,7 +282,7 @@ internal sealed class FlyoutView : Border
                 row.Background = _theme.RowHover;
             _hover(entry, this, row);
         };
-        row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
+        row.MouseLeave += (_, _) => row.Background = ReferenceEquals(row, _selectedRow) ? _theme.RowHover : Brushes.Transparent;
         row.MouseLeftButtonUp += (_, _) =>
         {
             if (!entry.Disabled && !entry.HasChildren)

@@ -1,3 +1,4 @@
+using Radii.Converters;
 using System.IO;
 using System.Windows;
 using System.Windows.Media;
@@ -8,6 +9,30 @@ namespace Radii.Editors;
 /// <summary>Picture helpers shared by the photo editors (all results are frozen, so any thread may use them).</summary>
 internal static class ImageTools
 {
+    /// <summary>What Windows opens by itself.</summary>
+    private static readonly string[] Native = ["png", "jpg", "jpeg", "jpe", "jfif", "bmp", "dib", "tif", "tiff", "gif", "ico"];
+
+    /// <summary>Opened by Windows when it has the codec (WebP, HEIC and AVIF come as Store extensions), otherwise through ImageMagick.</summary>
+    private static readonly string[] Extra = ["webp", "heic", "heif", "avif", "jxl", "jp2", "tga", "dds", "psd", "pcx", "hdr", "exr"];
+
+    /// <summary>Pictures the photo editors take.</summary>
+    public static readonly HashSet<string> Inputs = new(Native.Concat(Extra), StringComparer.OrdinalIgnoreCase);
+
+    public static bool IsPicture(string path) => Inputs.Contains(Path.GetExtension(path).TrimStart('.'));
+
+    /// <summary>Format of the result: the source's own where Windows can write it, otherwise JPG for photos and PNG for graphics.</summary>
+    public static string OutExt(string path) => Path.GetExtension(path).TrimStart('.').ToLowerInvariant() switch
+    {
+        "jpg" or "jpeg" or "jpe" or "jfif" => "jpg",
+        "tif" or "tiff" => "tiff",
+        "png" or "bmp" => Path.GetExtension(path).TrimStart('.').ToLowerInvariant(),
+        "webp" or "heic" or "heif" or "avif" or "jxl" or "jp2" => "jpg",
+        _ => "png",
+    };
+
+    /// <summary>True when Windows cannot open this picture itself and ImageMagick would have to.</summary>
+    public static bool NeedsMagick(string path) => Extra.Contains(Path.GetExtension(path).TrimStart('.'), StringComparer.OrdinalIgnoreCase) && !Wic.CanOpen(path);
+
     /// <summary>The picture turned the way its EXIF orientation says (what a viewer shows).</summary>
     public static BitmapSource Oriented(BitmapSource frame) => Oriented(frame, CropWindow.StateFromExif(frame));
 

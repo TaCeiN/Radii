@@ -66,6 +66,48 @@ internal sealed class FlyoutWindow : Window
 
     public void Populate(IReadOnlyList<ShellEntry> entries) => _view.Populate(entries);
 
+    /// <summary>Puts the window over <paramref name="anchor"/>, centred on it (kept inside the work area): the list takes the ring's place.</summary>
+    public void ShowOver(RECT anchor)
+    {
+        var centre = new POINT { X = (anchor.Left + anchor.Right) / 2, Y = (anchor.Top + anchor.Bottom) / 2 };
+        var monitor = MonitorFromPoint(centre, 2);
+        uint dpi = 96;
+        GetDpiForMonitor(monitor, 0, out dpi, out _);
+        var scale = dpi / 96.0;
+        _scale = scale;
+        var info = new MONITORINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<MONITORINFO>() };
+        GetMonitorInfo(monitor, ref info);
+
+        _view.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var width = (int)Math.Ceiling(_view.DesiredSize.Width * scale);
+        var height = (int)Math.Ceiling(_view.DesiredSize.Height * scale);
+        Width = _view.DesiredSize.Width;
+        Height = _view.DesiredSize.Height;
+        var x = Math.Clamp(centre.X - width / 2, info.rcWork.Left, Math.Max(info.rcWork.Left, info.rcWork.Right - width));
+        var y = Math.Clamp(centre.Y - height / 2, info.rcWork.Top, Math.Max(info.rcWork.Top, info.rcWork.Bottom - height));
+
+        var firstTime = !IsVisible;
+        if (firstTime)
+        {
+            Opacity = 0;
+            Show();
+        }
+        var handle = new WindowInteropHelper(this).Handle;
+        SetWindowPos(handle, HWND_TOPMOST, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        GetWindowRect(handle, out _bounds);
+        if (firstTime)
+        {
+            // Grows out of the middle, as the ring turns away.
+            BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160)));
+            var grow = new ScaleTransform(0.9, 0.9);
+            _view.RenderTransformOrigin = new Point(0.5, 0.5);
+            _view.RenderTransform = grow;
+            var spring = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.3 };
+            grow.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.9, 1, TimeSpan.FromMilliseconds(260)) { EasingFunction = spring });
+            grow.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.9, 1, TimeSpan.FromMilliseconds(260)) { EasingFunction = spring });
+        }
+    }
+
     /// <summary>Places the window to the right of <paramref name="anchor"/> (or to the left when there is no room).</summary>
     /// <param name="top">Wanted top edge in pixels; null centres the window vertically on the anchor.</param>
     public void ShowBeside(RECT anchor, int? top, bool preferLeft = false)

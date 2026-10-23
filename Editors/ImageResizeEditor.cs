@@ -41,7 +41,7 @@ internal sealed class ResizeWindow : EditorWindow
     public ResizeWindow(string path) : base(T("Resize photo", "Размер фото") + " · " + Path.GetFileName(path), 560, 360, T("Save a copy", "Сохранить копию"))
     {
         _path = path;
-        _ext = Path.GetExtension(path).TrimStart('.').ToLowerInvariant() switch { "jpeg" => "jpg", "tif" => "tiff", var e => e };
+        _ext = ImageTools.OutExt(path);
         try
         {
             _source = Oriented(Wic.Load(path));

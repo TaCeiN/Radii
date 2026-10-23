@@ -45,7 +45,7 @@ internal sealed class FileListPanel : Border
         Background = panel;
         BorderBrush = line;
         BorderThickness = new Thickness(1);
-        CornerRadius = new CornerRadius(8);
+        CornerRadius = new CornerRadius(12);
         MaxHeight = 150; // the card follows its rows; longer lists scroll
         Child = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = _rows };
     }

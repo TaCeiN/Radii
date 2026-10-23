@@ -39,7 +39,8 @@ internal sealed class InputHook : IDisposable
     public event Action<POINT>? Released;
     public event Action? DismissRequested;
     public event Action<int>? Wheel;
-    public event Action<uint>? KeyPressed;
+    /// <summary>Key code and, for keys that type something, the character (null otherwise).</summary>
+    public event Action<uint, string?>? KeyPressed;
 
     public volatile bool Enabled = true;
     public volatile bool MenuVisible;
@@ -47,6 +48,10 @@ internal sealed class InputHook : IDisposable
     public volatile bool ShiftConvert = true;
     /// <summary>Ctrl + right click is the ring of editors (off: Ctrl changes nothing).</summary>
     public volatile bool CtrlEdit = true;
+    /// <summary>The visible ring can be searched: letters and digits are taken by the menu while it is open.</summary>
+    public volatile bool SearchEnabled;
+    /// <summary>A search is under way: Space and Backspace belong to it too.</summary>
+    public volatile bool SearchActive;
 
     /// <summary>Evaluated on the hook thread: is this physical point inside the ring window?</summary>
     public Func<POINT, bool>? IsInsideRing { get; set; }
@@ -60,13 +65,17 @@ internal sealed class InputHook : IDisposable
         _thread = new Thread(() =>
         {
             _threadId = GetCurrentThreadId();
-            var module = GetModuleHandle(null);
-            _mouseHook = SetWindowsHookEx(WH_MOUSE_LL, _mouseProc, module, 0);
-            _keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, _keyboardProc, module, 0);
+            Install();
             ready.Set();
-            while (GetMessage(out _, IntPtr.Zero, 0, 0) > 0)
+            while (GetMessage(out var msg, IntPtr.Zero, 0, 0) > 0)
             {
                 // Hook callbacks are delivered while this thread waits for messages.
+                if (msg.message == WM_REINSTALL)
+                {
+                    UnhookWindowsHookEx(_mouseHook);
+                    UnhookWindowsHookEx(_keyboardHook);
+                    Install();
+                }
             }
             UnhookWindowsHookEx(_mouseHook);
             UnhookWindowsHookEx(_keyboardHook);
@@ -80,12 +89,42 @@ internal sealed class InputHook : IDisposable
         ready.Wait();
         if (_mouseHook == IntPtr.Zero || _keyboardHook == IntPtr.Zero)
             throw new InvalidOperationException("Could not install the global input hooks.");
+        // Windows silently drops a low-level hook that was too slow once (and after sleep / lock): put it back then, and now and then anyway.
+        Microsoft.Win32.SystemEvents.SessionSwitch += (_, e) =>
+        {
+            if (e.Reason is Microsoft.Win32.SessionSwitchReason.SessionUnlock or Microsoft.Win32.SessionSwitchReason.ConsoleConnect or Microsoft.Win32.SessionSwitchReason.RemoteConnect)
+                Reinstall();
+        };
+        Microsoft.Win32.SystemEvents.PowerModeChanged += (_, e) =>
+        {
+            if (e.Mode == Microsoft.Win32.PowerModes.Resume)
+                Reinstall();
+        };
+        _watchdog = new Timer(_ => Reinstall(), null, TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(10));
+    }
+
+    private const uint WM_REINSTALL = 0x8000 + 1;
+    private Timer? _watchdog;
+
+    private void Install()
+    {
+        var module = GetModuleHandle(null);
+        _mouseHook = SetWindowsHookEx(WH_MOUSE_LL, _mouseProc, module, 0);
+        _keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, _keyboardProc, module, 0);
+    }
+
+    /// <summary>Asks the hook thread to drop and set the hooks again (a no-op for the user, a cure when Windows removed them).</summary>
+    private void Reinstall()
+    {
+        if (_thread is not null && !MenuVisible)
+            PostThreadMessage(_threadId, WM_REINSTALL, IntPtr.Zero, IntPtr.Zero);
     }
 
     public void Dispose()
     {
         if (_thread is null)
             return;
+        _watchdog?.Dispose();
         PostThreadMessage(_threadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
         _thread.Join(1000);
         _thread = null;
@@ -133,7 +172,7 @@ internal sealed class InputHook : IDisposable
                 var shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
                 var ctrl = (GetAsyncKeyState(0x11) & 0x8000) != 0;
                 var mode = shift ? RingMode.Convert : ctrl && CtrlEdit ? RingMode.Edit : RingMode.Normal;
-                if (Enabled && (!shift || ShiftConvert) && ItemViewRoot(pt) is var root && root != IntPtr.Zero)
+                if (Enabled && (!shift || ShiftConvert) && ItemViewRoot(pt) is var root && root != IntPtr.Zero && !BlockedByElevation(root))
                 {
                     _swallowUp = true;
                     _root = root;
@@ -148,6 +187,11 @@ internal sealed class InputHook : IDisposable
         }
         return false;
     }
+
+    private static readonly bool SelfElevated = Updates.Updater.IsElevated();
+
+    /// <summary>An elevated Explorer ignores the keys we send (UIPI), so the ring would do nothing: leave that window to its own menu.</summary>
+    private static bool BlockedByElevation(IntPtr root) => !SelfElevated && IsElevatedWindow(root);
 
     private void DismissIfOutside(POINT pt)
     {
@@ -181,11 +225,16 @@ internal sealed class InputHook : IDisposable
             return _swallowedKeys.Remove(vk);
         // A and D only without Ctrl / Alt, so that real shortcuts still work.
         var plain = (GetAsyncKeyState(0x11) & 0x8000) == 0 && (GetAsyncKeyState(0x12) & 0x8000) == 0;
-        var ours = vk is 0x1B or 0x0D or (>= 0x25 and <= 0x28) || vk is 0x41 or 0x44 && plain;
+        // Typing: letters, digits, punctuation (and Space / Backspace once a search runs). Ctrl / Alt combinations stay with Explorer.
+        var typing = SearchEnabled && plain
+            && (vk is (>= 0x30 and <= 0x5A) or (>= 0x60 and <= 0x69) or (>= 0xBA and <= 0xC0) or (>= 0xDB and <= 0xDF)
+                || (SearchActive && vk is 0x20 or 0x08));
+        var ours = vk is 0x1B or 0x0D or (>= 0x25 and <= 0x28) || vk is 0x41 or 0x44 && plain || typing;
         if (!ours)
             return false;
         _swallowedKeys.Add(vk);
-        _dispatcher.BeginInvoke(() => KeyPressed?.Invoke(vk));
+        var text = typing || vk is 0x41 or 0x44 ? TypedChar(vk) : null;
+        _dispatcher.BeginInvoke(() => KeyPressed?.Invoke(vk, text));
         return true;
     }
 

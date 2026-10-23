@@ -56,7 +56,13 @@ internal static class AudioCodecs
     public static string[]? For(string ext) => ext.ToLowerInvariant() switch
     {
         "mp3" => ["-c:a", "libmp3lame", "-q:a", "2"],
-        "m4a" or "aac" => ["-c:a", "aac", "-b:a", "192k"],
+        "m4a" or "m4b" or "aac" => ["-c:a", "aac", "-b:a", "192k"],
+        "mp2" => ["-c:a", "mp2", "-b:a", "192k"],
+        "ac3" => ["-c:a", "ac3", "-b:a", "192k"],
+        "weba" => ["-c:a", "libopus", "-b:a", "128k"],
+        "mka" => ["-c:a", "flac"],
+        "caf" => ["-c:a", "pcm_s16le"],
+        "au" => ["-c:a", "pcm_s16be"],
         "wav" => ["-c:a", "pcm_s16le"],
         "flac" => ["-c:a", "flac"],
         "ogg" or "oga" => ["-c:a", "libvorbis", "-q:a", "5"],
@@ -72,10 +78,12 @@ internal static class VideoCodecs
 {
     public static string[]? For(string ext) => ext.ToLowerInvariant() switch
     {
-        "mp4" or "m4v" or "mov" or "mkv" or "ts" => ["-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k"],
+        "mp4" or "m4v" or "f4v" or "mov" or "mkv" or "ts" or "mts" or "m2ts" or "flv" or "3gp" or "3g2" => ["-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k"],
         "webm" => ["-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0", "-row-mt", "1", "-c:a", "libopus", "-b:a", "128k"],
         "avi" => ["-c:v", "mpeg4", "-q:v", "3", "-c:a", "libmp3lame", "-q:a", "3"],
-        "wmv" => ["-c:v", "wmv2", "-b:v", "4M", "-c:a", "wmav2", "-b:a", "192k"],
+        "ogv" => ["-c:v", "libtheora", "-q:v", "7", "-c:a", "libvorbis", "-q:a", "5"],
+        "vob" => ["-c:v", "mpeg2video", "-q:v", "3", "-c:a", "mp2", "-b:a", "192k"],
+        "wmv" or "asf" => ["-c:v", "wmv2", "-b:v", "4M", "-c:a", "wmav2", "-b:a", "192k"],
         "mpg" or "mpeg" => ["-c:v", "mpeg2video", "-q:v", "3", "-c:a", "mp2", "-b:a", "192k"],
         _ => null,
     };

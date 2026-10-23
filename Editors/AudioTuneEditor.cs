@@ -41,45 +41,73 @@ internal sealed class AudioTuneWindow : EditorWindow
     private string? _ffmpeg;
     private readonly System.Windows.Media.MediaPlayer _player = new();
     private readonly Button _playButton = new() { MinWidth = 120, Height = 32 };
+    private readonly WaveformView _wave = new() { Height = 78, ReadOnly = true, Visibility = Visibility.Collapsed };
+    private readonly System.Windows.Threading.DispatcherTimer _tick = new() { Interval = TimeSpan.FromMilliseconds(40) };
+    private readonly System.Windows.Threading.DispatcherTimer _debounce = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private string? _previewFile;
     private bool _playing;
+    private bool _waveLoaded;
+    private int _version;
+    private double _from;
+    private double _renderSpeed = 1;
 
     private static string ListenText => T("▶  Listen", "▶  Прослушать");
 
     private static string StopText => T("■  Stop", "■  Стоп");
 
-    /// <summary>Renders the first seconds of the first file with the current settings and plays them; pressed again, it stops.</summary>
-    private async Task TogglePreviewAsync()
+    /// <summary>Called when any setting changed: the wave follows the volume at once, a running preview is rendered again from the same spot.</summary>
+    private void Retune()
     {
+        _wave.Gain = Math.Pow(10, _gain.Value / 20);
         if (_playing)
         {
-            StopPreview();
-            return;
+            _debounce.Stop();
+            _debounce.Start();
         }
+    }
+
+    /// <summary>Plays the first file with the current settings from <paramref name="from"/> seconds (30 s are rendered); a settings change or a click on the wave starts again.</summary>
+    private async Task StartPreviewAsync(double from)
+    {
         if (_ffmpeg is null || _list.Entries.OfType<TrackEntry>().FirstOrDefault(e => e.Ready && e.Error is null) is not { } entry)
             return;
-        _playButton.IsEnabled = false;
-        _playButton.Content = "…";
+        var version = ++_version;
+        if (!_playing)
+        {
+            _playButton.IsEnabled = false;
+            _playButton.Content = "…";
+        }
         var filter = Filter();
+        var speed = _speed.Value;
         var file = Path.Combine(Path.GetTempPath(), "radii-listen-" + Guid.NewGuid().ToString("N") + ".wav");
         try
         {
             string[] filterArgs = filter.Length > 0 ? ["-af", filter] : [];
-            var (code, _) = await ProcessRunner.RunAsync(_ffmpeg, ["-y", "-hide_banner", "-nostdin", "-t", "15", "-i", entry.Path, "-vn", "-map", "0:a:0", .. filterArgs, "-ar", "44100", "-ac", "2", file], CancellationToken.None, _ => { });
-            if (code != 0 || !File.Exists(file))
+            var (code, _) = await ProcessRunner.RunAsync(_ffmpeg, ["-y", "-hide_banner", "-nostdin", "-ss", from.ToString("0.###", CultureInfo.InvariantCulture), "-t", "30", "-i", entry.Path, "-vn", "-map", "0:a:0", .. filterArgs, "-ar", "44100", "-ac", "2", file], CancellationToken.None, _ => { });
+            if (version != _version || code != 0 || !File.Exists(file))
             {
-                _playButton.Content = ListenText;
+                DeleteQuietly(file);
+                if (version == _version)
+                    StopPreview();
                 return;
             }
+            var old = _previewFile;
+            _player.Close();
+            DeleteQuietly(old);
             _previewFile = file;
+            _from = from;
+            _renderSpeed = speed;
             _player.Open(new Uri(file));
             _player.Play();
             _playing = true;
+            _tick.Start();
             _playButton.Content = StopText;
         }
         catch (Exception ex) when (ex is IOException or ConvertException or InvalidOperationException)
         {
-            _playButton.Content = ListenText;
+            DeleteQuietly(file);
+            if (version == _version)
+                StopPreview();
         }
         finally
         {
@@ -89,20 +117,46 @@ internal sealed class AudioTuneWindow : EditorWindow
 
     private void StopPreview()
     {
+        _version++;
         _playing = false;
+        _tick.Stop();
+        _debounce.Stop();
         _player.Stop();
         _player.Close();
         _playButton.Content = ListenText;
-        if (_previewFile is { } file)
+        DeleteQuietly(_previewFile);
+        _previewFile = null;
+    }
+
+    private static void DeleteQuietly(string? file)
+    {
+        if (file is null)
+            return;
+        try
         {
-            _previewFile = null;
-            try
-            {
-                File.Delete(file);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-            }
+            File.Delete(file);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    /// <summary>The wave of the first readable file, at its true level (the volume slider scales it).</summary>
+    private async Task LoadWaveAsync(TrackEntry entry)
+    {
+        if (_waveLoaded || _ffmpeg is null)
+            return;
+        _waveLoaded = true;
+        try
+        {
+            var (peaks, duration) = await Task.Run(() => TrimWindow.DecodeAsync(_ffmpeg, entry.Path, CancellationToken.None, normalize: false));
+            _wave.SetData(peaks, entry.Seconds > 0 ? entry.Seconds : duration);
+            _wave.Gain = Math.Pow(10, _gain.Value / 20);
+            _wave.Visibility = Visibility.Visible;
+        }
+        catch (Exception ex) when (ex is ConvertException or IOException or InvalidOperationException)
+        {
+            _waveLoaded = false;
         }
     }
 
@@ -128,8 +182,35 @@ internal sealed class AudioTuneWindow : EditorWindow
         if (paths.Count < 2)
             toolbar.Visibility = Visibility.Collapsed; // one file chosen: more files are picked in Explorer, not here
 
-        _gain.ValueChanged += (_, _) => _gainText.Text = (_gain.Value >= 0 ? "+" : "") + _gain.Value.ToString("0.#", CultureInfo.InvariantCulture) + " dB";
-        _speed.ValueChanged += (_, _) => HighlightSpeed();
+        _gain.ValueChanged += (_, _) =>
+        {
+            _gainText.Text = (_gain.Value >= 0 ? "+" : "") + _gain.Value.ToString("0.#", CultureInfo.InvariantCulture) + " dB";
+            Retune();
+        };
+        _speed.ValueChanged += (_, _) =>
+        {
+            HighlightSpeed();
+            Retune();
+        };
+        _normalize.Click += (_, _) => Retune();
+        _silence.Click += (_, _) => Retune();
+        _threshold.SelectionChanged += (_, _) => Retune();
+        _debounce.Tick += (_, _) =>
+        {
+            _debounce.Stop();
+            if (_playing)
+                _ = StartPreviewAsync(_wave.Position);
+        };
+        _tick.Tick += (_, _) =>
+        {
+            if (_playing)
+                _wave.Position = Math.Min(_from + _player.Position.TotalSeconds * _renderSpeed, _wave.End);
+        };
+        _wave.SeekRequested += time =>
+        {
+            if (_playing)
+                _ = StartPreviewAsync(time);
+        };
         foreach (var (db, label) in new[] { (-60, T("Very quiet (−60 dB)", "Совсем тихо (−60 dB)")), (-50, T("Quiet (−50 dB)", "Тихо (−50 dB)")), (-40, T("Rough (−40 dB)", "Грубо (−40 dB)")), (-30, T("Aggressive (−30 dB)", "Агрессивно (−30 dB)")) })
             _threshold.Items.Add(new ComboBoxItem { Content = label, Tag = db });
         _threshold.SelectedIndex = 1;
@@ -160,6 +241,11 @@ internal sealed class AudioTuneWindow : EditorWindow
         _gainText.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(_gainText, 2);
         volume.Children.Add(_gainText);
+        _wave.Accent = AccentBrush;
+        _wave.Idle = LineBrush;
+        _wave.LabelBrush = Muted;
+        _wave.ClipBrush = DangerBrush;
+        _wave.Margin = new Thickness(0, 0, 0, 8);
 
         // Row 2: label, preset chips.
         var speed = new Grid { MinHeight = 32, Margin = new Thickness(0, 6, 0, 0) };
@@ -175,7 +261,13 @@ internal sealed class AudioTuneWindow : EditorWindow
         boxes.Children.Add(_normalize);
         boxes.Children.Add(_silence);
         _playButton.Content = ListenText;
-        _playButton.Click += async (_, _) => await TogglePreviewAsync();
+        _playButton.Click += async (_, _) =>
+        {
+            if (_playing)
+                StopPreview();
+            else
+                await StartPreviewAsync(_wave.End - _wave.Position < 0.5 ? 0 : _wave.Position);
+        };
         _player.MediaEnded += (_, _) => StopPreview();
         Closed += (_, _) => StopPreview();
         var checks = new Grid { Margin = new Thickness(0, 6, 0, 0) };
@@ -194,7 +286,7 @@ internal sealed class AudioTuneWindow : EditorWindow
             {
                 toolbar,
                 _list,
-                new Border { Margin = new Thickness(0, 10, 0, 0), Child = Card(new StackPanel { Children = { volume, speed, checks } }, new Thickness(14, 8, 14, 10)) },
+                new Border { Margin = new Thickness(0, 10, 0, 0), Child = Card(new StackPanel { Children = { _wave, volume, speed, checks } }, new Thickness(14, 8, 14, 10)) },
             },
         };
 
@@ -212,24 +304,12 @@ internal sealed class AudioTuneWindow : EditorWindow
     private void HighlightSpeed()
     {
         foreach (var (chip, value) in _speedChips)
-        {
-            var on = Math.Abs(_speed.Value - value) < 0.001;
-            if (on)
-            {
-                chip.Background = AccentBrush;
-                chip.Foreground = System.Windows.Media.Brushes.White;
-            }
-            else
-            {
-                chip.ClearValue(Control.BackgroundProperty);
-                chip.ClearValue(Control.ForegroundProperty);
-            }
-        }
+            Mark(chip, Math.Abs(_speed.Value - value) < 0.001);
     }
 
     protected override string DoneTitle => T("Sound processed", "Звук обработан");
 
-    protected override bool SnapshotReady => _ffmpeg is not null && _list.Entries.All(e => e.Ready);
+    protected override bool SnapshotReady => _ffmpeg is not null && _list.Entries.All(e => e.Ready) && (_wave.Visibility == Visibility.Visible || _list.Entries.Any(e => e.Error is not null));
 
     /// <summary>"gain=6,speed=1.5,normalize,silence=-40".</summary>
     protected override void ConfigureForTest(string spec)
@@ -294,6 +374,8 @@ internal sealed class AudioTuneWindow : EditorWindow
             entry.Ready = true;
             _list.Refresh();
         });
+        if (entry.Error is null)
+            await LoadWaveAsync(entry);
     }
 
     private void UpdateHint() =>

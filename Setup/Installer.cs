@@ -379,12 +379,13 @@ internal static class Installer
             {
             }
         }
-        // This process may be the exe inside the folder, so the folder is removed by a helper after we exit.
+        // This process may be the exe inside the folder, so it is removed by a helper after we exit. Only our own exe is
+        // deleted and the folder goes only when empty: the folder may be one the user picked, with their files in it.
         var info = new ProcessStartInfo("cmd.exe")
         {
             UseShellExecute = false,
             CreateNoWindow = true,
-            Arguments = $"/c ping 127.0.0.1 -n 3 >nul & rmdir /s /q \"{dir}\"",
+            Arguments = $"/c ping 127.0.0.1 -n 3 >nul & del /f /q \"{Path.Combine(dir, ExeName)}\" & rmdir \"{dir}\"",
         };
         Process.Start(info)?.Dispose();
     }

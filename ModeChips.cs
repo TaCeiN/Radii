@@ -58,6 +58,8 @@ internal sealed class ChipsPanel : StackPanel
         var icon = new TextBlock { Text = glyph, FontFamily = IconFont, FontSize = 15, VerticalAlignment = VerticalAlignment.Center, Foreground = _theme.Text };
         var label = new TextBlock { Text = name, FontFamily = TextFont, FontSize = 12.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(7, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Foreground = _theme.Text };
         var hint = new TextBlock { Text = keys, FontFamily = TextFont, FontSize = 11, Margin = spec.HintLeft ? new Thickness(0, 0, 9, 0) : new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Foreground = _theme.TextMuted };
+        if (keys.Length == 0)
+            hint.Visibility = Visibility.Collapsed;
         var border = new Border
         {
             CornerRadius = new CornerRadius(16),
@@ -74,10 +76,26 @@ internal sealed class ChipsPanel : StackPanel
         };
         var chip = new Chip(spec, border, [icon, label, hint]);
         _chips.Add(chip);
-        border.MouseEnter += (_, _) => SetHover(spec);
-        border.MouseLeave += (_, _) => SetHover(null);
         border.MouseLeftButtonUp += (_, _) => Chosen?.Invoke(spec);
         Children.Add(border);
+    }
+
+    /// <summary>Gives every pill the width of the widest one, so the pair hangs symmetrically around the ring's centre whatever the names are.</summary>
+    public void EqualizeWidths()
+    {
+        var widest = 0.0;
+        foreach (var chip in _chips)
+        {
+            chip.Border.MinWidth = 0;
+            chip.Border.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            widest = Math.Max(widest, chip.Border.DesiredSize.Width);
+        }
+        foreach (var chip in _chips)
+        {
+            chip.Border.MinWidth = widest;
+            if (chip.Border.Child is FrameworkElement inner)
+                inner.HorizontalAlignment = HorizontalAlignment.Center;
+        }
     }
 
     public void SetHover(ChipSpec? spec)
@@ -126,6 +144,7 @@ internal sealed class ChipsWindow : Window
 
     public void ShowNear(RECT ring, RECT work, double dpiScale, bool animate)
     {
+        _panel.EqualizeWidths();
         _panel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var width = (int)Math.Ceiling(_panel.DesiredSize.Width * dpiScale);
         var height = (int)Math.Ceiling(_panel.DesiredSize.Height * dpiScale);
@@ -151,6 +170,7 @@ internal sealed class ChipsWindow : Window
             var top = y + (int)Math.Round(origin.Y * dpiScale);
             return (item.Spec, new RECT { Left = left, Top = top, Right = left + (int)Math.Round(item.Element.ActualWidth * dpiScale), Bottom = top + (int)Math.Round(item.Element.ActualHeight * dpiScale) });
         }).ToList();
+        StartHoverWatch();
         if (animate)
         {
             // Fade in and rise a few pixels, a beat after the ring itself.
@@ -164,6 +184,22 @@ internal sealed class ChipsWindow : Window
         {
             Opacity = 1;
         }
+    }
+
+    /// <summary>
+    /// The highlight follows the pointer by polling its position instead of mouse enter/leave: a pill that appears under a
+    /// stationary pointer (after switching the ring) never gets those events from WPF.
+    /// </summary>
+    private void StartHoverWatch()
+    {
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
+        timer.Tick += (_, _) =>
+        {
+            GetCursorPos(out var pt);
+            _panel.SetHover(HitChip(pt));
+        };
+        Closed += (_, _) => timer.Stop();
+        timer.Start();
     }
 
     /// <summary>Chip under this screen point (physical pixels), for a right button released after a drag.</summary>

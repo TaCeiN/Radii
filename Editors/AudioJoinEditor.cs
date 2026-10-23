@@ -11,7 +11,7 @@ namespace Radii.Editors;
 /// <summary>Join audio files into one in the order you set. Same format on both sides is copied without re-encoding.</summary>
 internal sealed class AudioJoinEditor : IEditor
 {
-    internal static readonly HashSet<string> Inputs = new(["mp3", "wav", "flac", "aac", "m4a", "ogg", "oga", "opus", "wma", "aiff", "aif"], StringComparer.OrdinalIgnoreCase);
+    internal static readonly HashSet<string> Inputs = new(["mp3", "wav", "flac", "aac", "m4a", "m4b", "ogg", "oga", "opus", "wma", "aiff", "aif", "mp2", "ac3", "weba", "mka", "caf", "au"], StringComparer.OrdinalIgnoreCase);
 
     public string Caption => T("Join audio", "Склеить аудио");
 

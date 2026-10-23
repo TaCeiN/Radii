@@ -1,4 +1,4 @@
-<p align="center">
+﻿<p align="center">
   <img src="assets/banner.png" alt="Radii: radial context menu for Windows 11">
 </p>
 
@@ -14,12 +14,12 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
 </p>
 
-<p align="center"><b>English</b> · <a href="README.ru.md">Русский</a></p>
+<p align="center"><b>English</b> В· <a href="README.ru.md">Р СѓСЃСЃРєРёР№</a></p>
 
 ![ring](docs/preview.png)
 
 The ring changes with what you clicked: a file, several files, a folder, an executable, an image, an archive, empty space.
-Everything the Windows menu has beyond that (7-Zip, Git, VS Code, …) lives in a flyout list next to the ring.
+Everything the Windows menu has beyond that (7-Zip, Git, VS Code, вЂ¦) lives in a flyout list next to the ring.
 **Shift + right click** turns the ring into a **file converter** (images, video, audio, documents, Office, PDF, data, archives).
 
 | Extensions flyout (real shell menu of a `.txt`) | Settings (tray icon) |
@@ -29,18 +29,18 @@ Everything the Windows menu has beyond that (7-Zip, Git, VS Code, …) lives in 
 ## Install
 
 1. Download **`Radii-Setup-x.y.z.exe`** from [Releases](https://github.com/TaCeiN/Radii/releases/latest) and run it
-   (no .NET needed, no administrator rights; SmartScreen may warn because the file is not code-signed yet — *More info → Run anyway*).
+   (no .NET needed, no administrator rights; SmartScreen may warn because the file is not code-signed yet вЂ” *More info в†’ Run anyway*).
 2. Pick a mode:
-   - **Automatic** — just wait. Installs the program, starts it with Windows, adds a Start menu shortcut and downloads all conversion
+   - **Automatic** вЂ” just wait. Installs the program, starts it with Windows, adds a Start menu shortcut and downloads all conversion
      engines (FFmpeg, ImageMagick, Pandoc, about 165 MB).
-   - **Manual** — choose the folder, shortcuts and which engines to download now. Skipped engines are fetched automatically the first
+   - **Manual** вЂ” choose the folder, shortcuts and which engines to download now. Skipped engines are fetched automatically the first
      time a conversion needs them.
 
 | Mode | Manual options |
 |---|---|
 | ![mode](docs/installer-mode.png) | ![options](docs/installer-options.png) |
 
-Uninstall from *Settings → Apps*, or run the installer again (it offers *Uninstall*). Updating = run the new installer over the old one.
+Uninstall from *Settings в†’ Apps*, or run the installer again (it offers *Uninstall*). Updating = run the new installer over the old one.
 Compare the file with `SHA256SUMS.txt` from the release if you like: `Get-FileHash .\Radii-Setup-x.y.z.exe`.
 
 Silent install for scripts: `Radii-Setup-x.y.z.exe --silent [--dir <path>] [--no-engines] [--no-launch]`.
@@ -59,7 +59,7 @@ tray menu) does it by hand. Engines are downloaded only when you pick them in th
   opens and Explorer never thinks a button is held.
 - What was clicked is read through UI Automation (selection) and `Shell.Application` (folder and full paths).
 - The ring is a never-activated, topmost WPF window, so Explorer keeps focus. Most actions are shortcuts sent with `SendInput`
-  (`Enter`, `Ctrl+C`, `F2`, `Delete`, `Alt+Enter`, …); the rest start processes (`runas`, `wt`, `tar`) or run in-process.
+  (`Enter`, `Ctrl+C`, `F2`, `Delete`, `Alt+Enter`, вЂ¦); the rest start processes (`runas`, `wt`, `tar`) or run in-process.
 - The **Extensions** sector opens a Windows 11 style flyout built from the real `IContextMenu` of the selection: third-party
   handlers, their icons and submenus, invoked on the live COM object. Commands the ring already has are removed from it.
 - **Shift + right click** opens the **converter ring**; the native menu is the last row of the extensions flyout (`Shift+F10`),
@@ -73,9 +73,9 @@ bottom-right corner shows progress, has a cancel button and, when done, a "Show 
 
 | Files | Converted to | Engine |
 |---|---|---|
-| Pictures: PNG JPG BMP GIF TIFF ICO WebP HEIC AVIF JXL SVG PSD TGA DDS EXR RAW… | PNG JPG WebP BMP GIF TIFF ICO AVIF PDF (several pictures into one PDF) | Windows imaging; ImageMagick for the rest |
-| Video: MP4 MKV AVI MOV WebM WMV FLV 3GP TS MPG… | MP4 MKV WebM MOV AVI GIF, audio only (MP3 AAC WAV FLAC OGG OPUS AIFF WMA), shrink to 1080/720/480/360p | FFmpeg |
-| Audio: MP3 WAV FLAC AAC M4A OGG OPUS WMA AIFF AC3… | MP3 AAC WAV FLAC OGG OPUS AIFF WMA | FFmpeg |
+| Pictures: PNG JPG BMP GIF TIFF ICO WebP HEIC AVIF JXL SVG PSD TGA DDS EXR RAWвЂ¦ | PNG JPG WebP BMP GIF TIFF ICO AVIF PDF (several pictures into one PDF) | Windows imaging; ImageMagick for the rest |
+| Video: MP4 MKV AVI MOV WebM WMV FLV 3GP TS MPGвЂ¦ | MP4 MKV WebM MOV AVI GIF, audio only (MP3 AAC WAV FLAC OGG OPUS AIFF WMA), shrink to 1080/720/480/360p | FFmpeg |
+| Audio: MP3 WAV FLAC AAC M4A OGG OPUS WMA AIFF AC3вЂ¦ | MP3 AAC WAV FLAC OGG OPUS AIFF WMA | FFmpeg |
 | Documents: MD TXT HTML DOCX ODT RTF EPUB TeX RST | PDF DOCX HTML MD TXT EPUB ODT RTF | Pandoc (+ Edge/Chrome for PDF) |
 | Office: DOC XLS XLSX ODS PPT PPTX ODP CSV | PDF, DOCX/XLSX/PPTX/ODT/ODS/ODP, CSV, slides to PNG | Microsoft Office when installed, else LibreOffice |
 | PDF | PNG JPG (every page) | Windows PDF renderer |
@@ -95,7 +95,7 @@ a new file next to the original.
 | Pictures | crop and rotate, resize, colour and light, compress to a size |
 | Video | trim (exact or fast cut), crop, remove sound, speed, frame to picture, piece to GIF |
 | Audio | trim with waveform, join, volume / normalise / speed / cut silence (with a listen button) |
-| PDF | merge, split, pages (extract, rotate, move, delete), compress |
+| PDF | merge, pages (extract, rotate, move, delete), compress |
 | Any | strip metadata, bulk rename with undo (only for several files) |
 
 Under every ring pills switch between the normal, convert and edit rings; `Left`/`Right` or `A`/`D` do the same from the keyboard.
@@ -104,6 +104,9 @@ Under every ring pills switch between the normal, convert and edit rings; `Left`
 
 - **Open:** right-click; the ring appears where you released the button and waits for a click on a sector.
 - **Keys while the ring is open:** arrows or the mouse wheel move the highlight, `Enter` confirms, `Esc` closes.
+- **Search:** just type while a ring is open (usual, converter or editors): every action of the ring (groups included) is searched, in the usual ring also every shell extension, `в†‘`/`в†“` pick, `Enter` runs, `Esc` clears.
+  Start with `/` when the word begins with A or D (those two switch ring modes).
+- **More:** when the ring has more than 11 sectors the tail goes into a **More** sector that opens a small ring.
 - **Tray icon:** left click opens settings; menu toggles the ring and exits.
 
 ## Menus
@@ -112,7 +115,7 @@ Under every ring pills switch between the normal, convert and edit rings; `Left`
 |---|---|
 | Empty space in Explorer | Paste, New folder, Refresh, Select all, Terminal here |
 | Empty space on desktop | Paste, New folder, Refresh, Display settings, Personalize |
-| File | Open, Open with…, Copy, Cut, Rename, Delete, Copy as path, Convert…, Properties |
+| File | Open, Open withвЂ¦, Copy, Cut, Rename, Delete, Copy as path, Compress to zip, SHA-256, Properties |
 | Executable / script / installer / shortcut | + **Run as admin** |
 | Folder | + Open in Terminal |
 | Git repository | + Open on GitHub (from `.git/config`) |
@@ -126,8 +129,8 @@ Every menu ends with **Extensions**. Sectors can be hidden, your own commands ad
 ## Settings
 
 `%APPDATA%\Radii\settings.json`, edited from the tray window (changes apply at once):
-theme, ring size, blurred background, number hints, animations, language, autostart, per-sector visibility,
-usage sorting, converter shortcut, and **own commands** (program + arguments with `{path}` `{paths}` `{folder}` `{name}`, per file type, optionally elevated).
+theme, ring size, blurred background, animations, language, autostart, per-sector visibility,
+usage sorting, converter shortcut, and **own commands** (program + arguments with `{path}` `{paths}` `{folder}` `{name}` `{stem}` `{ext}`; `{path}` is not quoted, add quotes yourself; per file type, optionally elevated).
 
 ## Build from source
 
@@ -146,4 +149,4 @@ Made by **TaCeiN**. Questions, ideas, bug reports: [Telegram @Tachg](https://t.m
 
 ## License
 
-[MIT](LICENSE) © TaCeiN
+[MIT](LICENSE) В© TaCeiN

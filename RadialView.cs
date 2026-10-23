@@ -137,6 +137,16 @@ internal sealed class RadialView : Canvas
         ShowLabel(_summary, muted: true);
     }
 
+    /// <summary>Replaces the text in the centre while nothing is hovered (the search query); null brings back the original.</summary>
+    public void SetStatus(string? text)
+    {
+        _status = text;
+        if (_hover < 0)
+            ShowLabel(_status ?? _summary, muted: true);
+    }
+
+    private string? _status;
+
     public int Count => _items.Count;
 
     public int Hovered => _hover;
@@ -171,7 +181,7 @@ internal sealed class RadialView : Canvas
         }
         else
         {
-            ShowLabel(_summary, muted: true);
+            ShowLabel(_status ?? _summary, muted: true);
         }
     }
 

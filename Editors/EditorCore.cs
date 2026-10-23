@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net.Http;
 
 namespace Radii.Editors;
 
@@ -32,7 +33,6 @@ internal static class EditorMenu
         ("vcrop", new VideoCropEditor()),
         ("pdf", new PdfMergeEditor()),
         ("pages", new PdfPagesEditor()),
-        ("split", new PdfSplitEditor()),
         ("pdfzip", new PdfCompressEditor()),
         ("meta", new MetadataEditor()),
         ("rename", new RenameEditor()),
@@ -60,6 +60,12 @@ internal static class EditorMenu
 
     public static void Show(IEditor editor, IReadOnlyList<string> paths)
     {
+        // WebP/HEIC/AVIF and the like open through ImageMagick when Windows has no codec: fetch it first (one time).
+        if (!Converters.Engines.IsInstalled(Converters.Engine.Magick) && paths.Any(ImageTools.IsPicture) && paths.Any(ImageTools.NeedsMagick))
+        {
+            _ = ShowAfterEngineAsync(editor, paths);
+            return;
+        }
         try
         {
             var window = editor.Create(paths);
@@ -70,6 +76,24 @@ internal static class EditorMenu
         {
             Notifier.Show("Radii", Menus.T("Could not open the editor: ", "Не удалось открыть редактор: ") + ex.Message);
         }
+    }
+
+    private static async Task ShowAfterEngineAsync(IEditor editor, IReadOnlyList<string> paths)
+    {
+        var dispatcher = System.Windows.Application.Current.Dispatcher;
+        using var cancel = new CancellationTokenSource();
+        var toast = Toast.Begin(Menus.T("Preparing the editor", "Готовлю редактор"), Menus.T("Downloading ImageMagick (one time)", "Скачиваю ImageMagick (один раз)"), cancel);
+        try
+        {
+            await Converters.Engines.EnsureAsync(Converters.Engine.Magick, new Converters.ConvertContext(cancel.Token, (text, fraction) => dispatcher.BeginInvoke(() => toast.Update(text, fraction))));
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or Converters.ConvertException or IOException or HttpRequestException)
+        {
+            toast.Fail(ex is Converters.ConvertException ? ex.Message : Menus.T("Could not get ImageMagick", "Не удалось получить ImageMagick"));
+            return;
+        }
+        toast.Done(Menus.T("Ready", "Готово"), null);
+        Show(editor, paths);
     }
 
     /// <summary>Editor by name for the diagnostics (<c>--snapshot-editor</c>, <c>--editor-save</c>).</summary>

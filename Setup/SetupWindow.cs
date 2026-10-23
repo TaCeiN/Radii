@@ -17,7 +17,7 @@ internal sealed class SetupWindow : Window
     private enum Page { Mode, Options, Progress, Done }
 
     private readonly SetupOptions _options;
-    private readonly bool _dark = Theme.SystemDark();
+    private readonly bool _dark = Theme.UserDark();
     private readonly ContentControl _body = new();
     private readonly Button _back = new() { MinWidth = 92, Margin = new Thickness(0, 0, 8, 0) };
     private readonly Button _next = new() { MinWidth = 120, Margin = new Thickness(0, 0, 8, 0) };
@@ -49,8 +49,8 @@ internal sealed class SetupWindow : Window
         Height = 620;
         ResizeMode = ResizeMode.CanMinimize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        Background = Brush(_dark ? "#202020" : "#F3F3F3");
-        Foreground = Brush(_dark ? "#FFFFFF" : "#1B1B1B");
+        Background = Brush(Skin.Window(_dark));
+        Foreground = Brush(Skin.Text(_dark));
         FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI");
         FontSize = 14;
 
@@ -150,11 +150,11 @@ internal sealed class SetupWindow : Window
 
     private static SolidColorBrush Brush(string hex) => (SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;
 
-    private Brush Muted => Brush(_dark ? "#B0B0B0" : "#616161");
+    private Brush Muted => Brush(Skin.Muted(_dark));
 
-    private Brush CardBorder => Brush(_dark ? "#3A3A3A" : "#D6D6D6");
+    private Brush CardBorder => Brush(Skin.Line(_dark));
 
-    private Brush CardFill => Brush(_dark ? "#2B2B2B" : "#FFFFFF");
+    private Brush CardFill => Brush(Skin.Card(_dark));
 
     private UIElement Header()
     {
@@ -252,7 +252,7 @@ internal sealed class SetupWindow : Window
             Background = CardFill,
             BorderBrush = CardBorder,
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(12),
             Padding = new Thickness(8),
             Margin = new Thickness(0, 0, 0, 10),
         };

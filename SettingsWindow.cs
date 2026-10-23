@@ -15,7 +15,7 @@ internal sealed class SettingsWindow : Window
     private const string AutostartKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private static SettingsWindow? _instance;
 
-    private readonly bool _dark = Theme.SystemDark();
+    private readonly bool _dark = Theme.UserDark();
     private readonly StackPanel _page = new() { Margin = new Thickness(20, 16, 20, 24) };
     private readonly ListBox _commandList = new() { MinHeight = 64, MaxHeight = 160 };
 
@@ -58,16 +58,18 @@ internal sealed class SettingsWindow : Window
         MinWidth = 420;
         MinHeight = 420;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        Background = Brush(_dark ? "#202020" : "#F3F3F3");
-        Foreground = Brush(_dark ? "#FFFFFF" : "#1B1B1B");
+        Background = Brush(Skin.Window(_dark));
+        Foreground = Brush(Skin.Text(_dark));
         FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI");
-        Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = _page };
+        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = _page };
+        SmoothScroll.Attach(scroll);
+        Content = scroll;
         Build();
     }
 
     private static SolidColorBrush Brush(string hex) => (SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;
 
-    private Brush Muted => Brush(_dark ? "#B0B0B0" : "#616161");
+    private Brush Muted => Brush(Skin.Muted(_dark));
 
     private void Build()
     {
@@ -97,21 +99,15 @@ internal sealed class SettingsWindow : Window
         Section(T("Look", "Вид"));
         Card(
             Combo(T("Theme", "Тема"), [("system", T("System", "Как в системе")), ("dark", T("Dark", "Тёмная")), ("light", T("Light", "Светлая"))], () => settings.Theme, v => settings.Theme = v),
+            Combo(T("Colour scheme", "Цветовая схема"), Skin.PaletteList.Select(x => (x.Id, T(x.En, x.Ru))).ToArray(), () => settings.Palette, v => settings.Palette = v),
             Scale(T("Ring size", "Размер кольца")),
             Toggle(T("Blurred background", "Размытый фон"), T("Frosted-glass look behind the sectors", "Эффект матового стекла за секторами"), () => settings.Acrylic, v => settings.Acrylic = v),
             Toggle(T("Animations", "Анимации"), null, () => settings.Animations, v => settings.Animations = v));
 
-        _page.Children.Add(new Expander
-        {
-            Header = T("Sectors (show or hide each one)", "Секторы (показать или скрыть каждый)"),
-            Margin = new Thickness(0, 18, 0, 0),
-            Content = MakeCard(Menus.Builtins.Select(b => Toggle(T(b.En, b.Ru), null, () => !settings.HiddenItems.Contains(b.Id), visible =>
-            {
-                settings.HiddenItems.Remove(b.Id);
-                if (!visible)
-                    settings.HiddenItems.Add(b.Id);
-            })).ToArray()),
-        });
+        Section(T("Ring", "Кольцо"));
+        var editRing = new Button { Content = T("Edit the ring…", "Настроить кольцо…"), Padding = new Thickness(14, 4, 14, 4) };
+        editRing.Click += (_, _) => RingEditorWindow.ShowOrActivate(this);
+        Card(Row(T("Which action sits where", "Какое действие где стоит"), T("See the real ring for a file, a folder, a picture... and change every sector", "Живое кольцо для файла, папки, картинки… и смена каждого сектора"), editRing));
 
         Section(T("Your commands", "Свои команды"));
         RefreshCommands();
@@ -179,10 +175,10 @@ internal sealed class SettingsWindow : Window
             stack.Children.Add(row);
         return new Border
         {
-            Background = Brush(_dark ? "#2B2B2B" : "#FFFFFF"),
-            BorderBrush = Brush(_dark ? "#38FFFFFF" : "#14000000"),
+            Background = Brush(Skin.Card(_dark)),
+            BorderBrush = Brush(Skin.Line(_dark)),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(12),
             Padding = new Thickness(14, 8, 14, 8),
             Margin = new Thickness(0, 8, 0, 0),
             Child = stack,
@@ -208,7 +204,7 @@ internal sealed class SettingsWindow : Window
 
     private UIElement Toggle(string title, string? description, Func<bool> get, Action<bool> set)
     {
-        var box = new CheckBox { IsChecked = get(), MinWidth = 0 };
+        var box = new CheckBox { IsChecked = get(), MinWidth = 0, Style = (Style)FindResource("SkSwitch") };
         box.Click += (_, _) =>
         {
             set(box.IsChecked == true);
@@ -305,9 +301,9 @@ internal sealed class CommandDialog : Window
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false;
-        var dark = Theme.SystemDark();
-        Background = (SolidColorBrush)new BrushConverter().ConvertFromString(dark ? "#202020" : "#F3F3F3")!;
-        Foreground = (SolidColorBrush)new BrushConverter().ConvertFromString(dark ? "#FFFFFF" : "#1B1B1B")!;
+        var dark = Theme.UserDark();
+        Background = (SolidColorBrush)new BrushConverter().ConvertFromString(Skin.Window(dark))!;
+        Foreground = (SolidColorBrush)new BrushConverter().ConvertFromString(Skin.Text(dark))!;
 
         foreach (var (glyph, en, ru) in Glyphs)
         {

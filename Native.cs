@@ -277,6 +277,74 @@ internal static class Native
     [DllImport("shell32.dll")]
     public static extern int SHBindToParent(IntPtr pidl, ref Guid riid, out IntPtr parent, out IntPtr lastPidl);
 
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint access, bool inherit, uint processId);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool GetTokenInformation(IntPtr token, int infoClass, out int info, int length, out int returned);
+
+    /// <summary>True when the window belongs to a process running with administrator rights. Unknown (no access) counts as not elevated.</summary>
+    public static bool IsElevatedWindow(IntPtr hwnd)
+    {
+        GetWindowThreadProcessId(hwnd, out var pid);
+        var process = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
+        if (process == IntPtr.Zero)
+            return false;
+        try
+        {
+            if (!OpenProcessToken(process, 0x0008 /* TOKEN_QUERY */, out var token))
+                return false;
+            try
+            {
+                return GetTokenInformation(token, 20 /* TokenElevation */, out var elevated, sizeof(int), out _) && elevated != 0;
+            }
+            finally
+            {
+                CloseHandle(token);
+            }
+        }
+        finally
+        {
+            CloseHandle(process);
+        }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetKeyboardLayout(uint thread);
+
+    [DllImport("user32.dll")]
+    private static extern uint MapVirtualKeyEx(uint code, uint type, IntPtr layout);
+
+    [DllImport("user32.dll")]
+    private static extern short GetKeyState(int vk);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int ToUnicodeEx(uint vk, uint scan, byte[] state, [Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder buffer, int size, uint flags, IntPtr layout);
+
+    /// <summary>The character a key press types in the layout of the foreground window (so Russian typing works), or null for keys without one.</summary>
+    public static string? TypedChar(uint vk)
+    {
+        var layout = GetKeyboardLayout(GetWindowThreadProcessId(GetForegroundWindow(), out _));
+        var state = new byte[256];
+        if ((GetAsyncKeyState(0x10) & 0x8000) != 0)
+            state[0x10] = 0x80;
+        if ((GetKeyState(0x14) & 1) != 0)
+            state[0x14] = 1;
+        var buffer = new StringBuilder(8);
+        // Flag 4: do not change the keyboard state (dead keys stay as they were).
+        var count = ToUnicodeEx(vk, MapVirtualKeyEx(vk, 0, layout), state, buffer, buffer.Capacity, 4, layout);
+        return count == 1 && buffer[0] >= ' ' ? buffer.ToString(0, 1) : null;
+    }
+
     public static string ClassName(IntPtr hwnd)
     {
         var sb = new StringBuilder(256);

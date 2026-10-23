@@ -34,6 +34,9 @@ internal sealed class Settings
     public double RingScale { get; set; } = 1.0;
     public bool Animations { get; set; } = true;
     public bool Acrylic { get; set; } = true;
+
+    /// <summary>Colour scheme id from <see cref="Skin.PaletteList"/>.</summary>
+    public string Palette { get; set; } = "mono";
     public bool SortByUsage { get; set; }
     /// <summary>Ask GitHub Releases for a newer version at start and once a day. Off: only the "Check for updates" button does.</summary>
     public bool CheckUpdates { get; set; } = true;
@@ -44,6 +47,8 @@ internal sealed class Settings
     /// <summary>Pills beside the ring that remind of Shift / Ctrl + right click and can be clicked.</summary>
     public bool ModeChips { get; set; } = true;
     public List<string> HiddenItems { get; set; } = [];
+    /// <summary>Ring layouts the user made in the ring editor: context key (file, folder, ...) to the ordered ids of the sectors.</summary>
+    public Dictionary<string, List<string>> Layouts { get; set; } = [];
     public List<CustomCommand> Commands { get; set; } = [];
     public Dictionary<string, int> Usage { get; set; } = [];
 
@@ -85,6 +90,23 @@ internal sealed class Settings
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
+            if (ex is JsonException)
+            {
+                // Broken file: keep the .bak (previous good save) if it parses, else start over; never lose the evidence silently.
+                Program.Log("settings.json unreadable: " + ex.Message);
+                try
+                {
+                    var backup = JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath + ".bak"));
+                    if (backup is not null)
+                    {
+                        backup.RingScale = Math.Clamp(backup.RingScale, 0.7, 1.6);
+                        return backup;
+                    }
+                }
+                catch (Exception inner) when (inner is IOException or JsonException or UnauthorizedAccessException)
+                {
+                }
+            }
             return new Settings();
         }
     }
@@ -96,7 +118,13 @@ internal sealed class Settings
             try
             {
                 Directory.CreateDirectory(Folder);
-                File.WriteAllText(FilePath, JsonSerializer.Serialize(Current, Json));
+                // Write beside, then swap in: a crash in the middle leaves the old file (and a .bak) instead of broken JSON.
+                var temp = FilePath + ".tmp";
+                File.WriteAllText(temp, JsonSerializer.Serialize(Current, Json));
+                if (File.Exists(FilePath))
+                    File.Replace(temp, FilePath, FilePath + ".bak");
+                else
+                    File.Move(temp, FilePath);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {

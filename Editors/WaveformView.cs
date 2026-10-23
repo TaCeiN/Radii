@@ -19,6 +19,24 @@ internal sealed class WaveformView : FrameworkElement
     public Brush Idle { get; set; } = Brushes.Gray;
     public Brush LabelBrush { get; set; } = Brushes.Gray;
 
+    /// <summary>Plain wave with a play cursor: no selection edges, a click or drag only seeks.</summary>
+    public bool ReadOnly { get; set; }
+
+    /// <summary>Linear gain drawn into the bars (the volume preview); bars above full scale turn to <see cref="Clip"/>.</summary>
+    public double Gain
+    {
+        get => _gain;
+        set
+        {
+            _gain = value;
+            InvalidateVisual();
+        }
+    }
+
+    private double _gain = 1;
+
+    public Brush ClipBrush { get; set; } = Brushes.OrangeRed;
+
     public double Start { get; private set; }
     public double End { get; private set; }
 
@@ -92,11 +110,20 @@ internal sealed class WaveformView : FrameworkElement
             float peak = 0;
             for (var i = first; i < last && i < _peaks.Length; i++)
                 peak = Math.Max(peak, _peaks[i]);
-            var h = Math.Max(2, peak * (area - 14));
-            dc.DrawRectangle(x + bar / 2 >= from && x <= to ? Accent : Idle, null, new Rect(x, middle - h / 2, bar, h));
+            var level = peak * _gain;
+            var h = Math.Max(2, Math.Min(1, level) * (area - 14));
+            var brush = ReadOnly && level > 1 ? ClipBrush : x + bar / 2 >= from && x <= to ? Accent : Idle;
+            dc.DrawRectangle(brush, null, new Rect(x, middle - h / 2, bar, h));
         }
 
-        // selection wash and edges
+        if (!ReadOnly)
+            DrawSelection(dc, from, to, area);
+        DrawCursor(dc, area);
+        DrawLabels(dc, width, area);
+    }
+
+    private void DrawSelection(DrawingContext dc, double from, double to, double area)
+    {
         var wash = Accent.CloneCurrentValue();
         wash.Opacity = 0.14;
         dc.DrawRectangle(wash, null, new Rect(from, 0, Math.Max(0, to - from), area));
@@ -105,12 +132,16 @@ internal sealed class WaveformView : FrameworkElement
         dc.DrawLine(edge, new Point(to, 0), new Point(to, area));
         dc.DrawRoundedRectangle(Accent, null, new Rect(from - GripWidth, area / 2 - 14, GripWidth, 28), 3, 3);
         dc.DrawRoundedRectangle(Accent, null, new Rect(to, area / 2 - 14, GripWidth, 28), 3, 3);
+    }
 
-        // play cursor
+    private void DrawCursor(DrawingContext dc, double area)
+    {
         var cursor = XAt(Math.Clamp(_position, 0, _duration));
         dc.DrawLine(new Pen(Brushes.White, 1.5), new Point(cursor, 0), new Point(cursor, area));
+    }
 
-        // time labels
+    private void DrawLabels(DrawingContext dc, double width, double area)
+    {
         var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         for (var i = 0; i <= 4; i++)
         {
@@ -131,6 +162,15 @@ internal sealed class WaveformView : FrameworkElement
         if (_peaks.Length == 0)
             return;
         var x = e.GetPosition(this).X;
+        if (ReadOnly)
+        {
+            _drag = (false, false, false, true);
+            _position = TimeAt(x);
+            InvalidateVisual();
+            CaptureMouse();
+            e.Handled = true;
+            return;
+        }
         _downX = x;
         var nearStart = Math.Abs(x - XAt(Start)) <= Grab + GripWidth / 2;
         var nearEnd = Math.Abs(x - XAt(End)) <= Grab + GripWidth / 2;
@@ -147,6 +187,15 @@ internal sealed class WaveformView : FrameworkElement
         if (_peaks.Length == 0)
             return;
         var x = e.GetPosition(this).X;
+        if (ReadOnly)
+        {
+            if (_drag is not null)
+            {
+                _position = TimeAt(x);
+                InvalidateVisual();
+            }
+            return;
+        }
         if (_drag is not { } drag)
         {
             var near = Math.Abs(x - XAt(Start)) <= Grab + GripWidth / 2 || Math.Abs(x - XAt(End)) <= Grab + GripWidth / 2;

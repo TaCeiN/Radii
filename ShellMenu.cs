@@ -21,6 +21,10 @@ internal sealed class ShellEntry
     public bool Disabled { get; init; }
     public bool Checked { get; init; }
     public ImageSource? Icon { get; set; }
+    /// <summary>Fluent icon character drawn when there is no bitmap (search results that come from the ring).</summary>
+    public string? Glyph { get; init; }
+    /// <summary>A larger icon (32 px) from the registry verb or its program, for the tile view; null when only the menu's small bitmap exists.</summary>
+    public ImageSource? BigIcon { get; set; }
     public List<ShellEntry> Children { get; init; } = [];
 
     public bool HasChildren => Children.Count > 0;
@@ -58,16 +62,21 @@ internal static class VerbIcons
         {
             if (entry.IsSeparator)
                 continue;
-            if (entry.Icon is null)
+            var spec = specs.FirstOrDefault(s => entry.Verb is not null && string.Equals(s.Verb, entry.Verb, StringComparison.OrdinalIgnoreCase))
+                ?? specs.FirstOrDefault(s => s.Label.Length > 0 && string.Equals(s.Label, entry.Label, StringComparison.OrdinalIgnoreCase));
+            if (spec is not null)
             {
-                var spec = specs.FirstOrDefault(s => entry.Verb is not null && string.Equals(s.Verb, entry.Verb, StringComparison.OrdinalIgnoreCase))
-                    ?? specs.FirstOrDefault(s => s.Label.Length > 0 && string.Equals(s.Label, entry.Label, StringComparison.OrdinalIgnoreCase));
-                if (spec is not null)
+                if (entry.Icon is null)
                 {
                     if (!cache.TryGetValue(spec.Icon, out var icon))
-                        cache[spec.Icon] = icon = Load(spec.Icon);
+                        cache[spec.Icon] = icon = Load(spec.Icon, large: false);
                     entry.Icon = icon;
                 }
+                // The tile view wants a bigger picture than the 16 px bitmap of the menu.
+                var key = "large:" + spec.Icon;
+                if (!cache.TryGetValue(key, out var big))
+                    cache[key] = big = Load(spec.Icon, large: true);
+                entry.BigIcon = big;
             }
             Walk(entry.Children, specs, cache);
         }
@@ -152,7 +161,7 @@ internal static class VerbIcons
         return SHLoadIndirectString(value, buffer, buffer.Capacity, IntPtr.Zero) == 0 ? buffer.ToString() : null;
     }
 
-    private static ImageSource? Load(string spec)
+    private static ImageSource? Load(string spec, bool large)
     {
         var path = Environment.ExpandEnvironmentVariables(spec.Trim());
         var index = 0;
@@ -165,18 +174,19 @@ internal static class VerbIcons
         path = path.Trim().Trim('"');
         if (path.StartsWith('@'))
             path = path[1..];
-        var small = new IntPtr[1];
-        if (ExtractIconEx(path, index, null, small, 1) < 1 || small[0] == IntPtr.Zero)
+        var handles = new IntPtr[1];
+        var found = large ? ExtractIconEx(path, index, handles, null, 1) : ExtractIconEx(path, index, null, handles, 1);
+        if (found < 1 || handles[0] == IntPtr.Zero)
             return null;
         try
         {
-            var source = System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(small[0], Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+            var source = System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(handles[0], Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
             source.Freeze();
             return source;
         }
         finally
         {
-            DestroyIcon(small[0]);
+            DestroyIcon(handles[0]);
         }
     }
 
@@ -583,12 +593,12 @@ internal static class ShellMenuHost
 internal static class ShellFilter
 {
     private static readonly HashSet<string> CoveredVerbs = new(StringComparer.OrdinalIgnoreCase)
-        { "open", "cut", "copy", "paste", "delete", "rename", "properties", "copyaspath", "openas", "pastelink" };
+        { "open", "cut", "copy", "paste", "delete", "rename", "copyaspath", "pastelink" };
 
     private static readonly HashSet<string> CoveredLabels = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Open", "Cut", "Copy", "Paste", "Delete", "Rename", "Properties", "Copy as path", "Open with", "Paste shortcut",
-        "Открыть", "Вырезать", "Копировать", "Копир.", "Вставить", "Удалить", "Переименовать", "Свойства", "Копировать как путь", "Открыть с помощью", "Вставить ярлык",
+        "Open", "Cut", "Copy", "Paste", "Delete", "Rename", "Copy as path", "Paste shortcut",
+        "Открыть", "Вырезать", "Копировать", "Копир.", "Вставить", "Удалить", "Переименовать", "Копировать как путь", "Вставить ярлык",
     };
 
     public static List<ShellEntry> Clean(List<ShellEntry> entries, bool top = true)
