@@ -22,6 +22,8 @@ Radii.exe --snapshot out.png                 # all ring variants
 Radii.exe --snapshot-flyout out.png <path>   # extensions flyout
 Radii.exe --snapshot-settings out.png        # settings window
 Radii.exe --snapshot-convert out.png <path>  # converter ring
+Radii.exe --snapshot-ring-editor out.png [file|folder|picture|...] [sector]   # ring editor
+Radii.exe --snapshot-editor out.png crop|color|video|rename|... <path>...     # a mini editor window
 Radii.exe --setup-snapshot out.png mode|options|progress|done [en|ru]   # installer pages
 Radii.exe --convert out.txt <formatId> <path>...   # headless conversion
 ```

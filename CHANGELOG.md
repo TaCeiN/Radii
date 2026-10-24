@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.3
+
+- **New logo.** The mark is now the ring itself: six graphite sectors with the one you are about to pick lit white. New app and tray icon, README banner and social preview to match the graphite skin.
+- Installer: the mode descriptions wrap instead of being cut off (the same fix applies to every radio button in the app).
+- README rewritten in English and Russian, with demo GIFs of the ring, the converter and the editors, and fresh screenshots.
+
 ## 0.4.2
 
 - **New look.** Radii no longer follows the Windows accent colour: it has its own graphite palette (mono by default) and its own modern controls. Six colour schemes in Settings (graphite, amber, sage, terracotta, lime, slate), light and dark.

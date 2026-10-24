@@ -1,17 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <defs><linearGradient id="t" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#282b3a"/><stop offset="1" stop-color="#111219"/></linearGradient></defs>
-  <rect width="128" height="128" rx="28" fill="url(#t)"/>
-  <line x1="64.00" y1="42.00" x2="64.00" y2="24.00" stroke="#4cc2ff" stroke-width="10" stroke-linecap="round"/>
-  <circle cx="64.00" cy="18.00" r="9" fill="#4cc2ff"/>
-  <line x1="83.05" y1="53.00" x2="98.64" y2="44.00" stroke="#4cc2ff" stroke-width="10" stroke-linecap="round"/>
-  <circle cx="103.84" cy="41.00" r="12" fill="#ffffff"/>
-  <line x1="83.05" y1="75.00" x2="98.64" y2="84.00" stroke="#4cc2ff" stroke-width="10" stroke-linecap="round"/>
-  <circle cx="103.84" cy="87.00" r="9" fill="#4cc2ff"/>
-  <line x1="64.00" y1="86.00" x2="64.00" y2="104.00" stroke="#4cc2ff" stroke-width="10" stroke-linecap="round"/>
-  <circle cx="64.00" cy="110.00" r="9" fill="#4cc2ff"/>
-  <line x1="44.95" y1="75.00" x2="29.36" y2="84.00" stroke="#4cc2ff" stroke-width="10" stroke-linecap="round"/>
-  <circle cx="24.16" cy="87.00" r="9" fill="#4cc2ff"/>
-  <line x1="44.95" y1="53.00" x2="29.36" y2="44.00" stroke="#4cc2ff" stroke-width="10" stroke-linecap="round"/>
-  <circle cx="24.16" cy="41.00" r="9" fill="#4cc2ff"/>
-  <circle cx="64" cy="64" r="14" fill="#4cc2ff"/>
+  <defs>
+    <linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b2b2b"/><stop offset="1" stop-color="#121212"/></linearGradient>
+    <linearGradient id="e" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".25"/><stop offset="1" stop-color="#fff" stop-opacity=".02"/></linearGradient>
+    <linearGradient id="w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#dadada"/></linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="url(#t)"/>
+  <rect x="0.75" y="0.75" width="126.5" height="126.5" rx="29.25" fill="none" stroke="url(#e)" stroke-width="1.5"/>
+  <path d="M43.77 21.58 A47 47 0 0 1 84.23 21.58 L72.18 46.85 A19 19 0 0 0 55.82 46.85 Z" fill="#3a3a3a"/>
+  <path d="M90.62 25.27 A47 47 0 0 1 110.86 60.31 L82.94 62.51 A19 19 0 0 0 74.76 48.34 Z" fill="url(#w)"/>
+  <path d="M110.86 67.69 A47 47 0 0 1 90.62 102.73 L74.76 79.66 A19 19 0 0 0 82.94 65.49 Z" fill="#3a3a3a"/>
+  <path d="M84.23 106.42 A47 47 0 0 1 43.77 106.42 L55.82 81.15 A19 19 0 0 0 72.18 81.15 Z" fill="#3a3a3a"/>
+  <path d="M37.38 102.73 A47 47 0 0 1 17.14 67.69 L45.06 65.49 A19 19 0 0 0 53.24 79.66 Z" fill="#3a3a3a"/>
+  <path d="M17.14 60.31 A47 47 0 0 1 37.38 25.27 L53.24 48.34 A19 19 0 0 0 45.06 62.51 Z" fill="#3a3a3a"/>
+  <circle cx="64" cy="64" r="12" fill="#3a3a3a"/>
 </svg>

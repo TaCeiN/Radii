@@ -219,13 +219,13 @@ internal static class Skin
               <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
               <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
                 <Border x:Name="card" CornerRadius="10" BorderThickness="1" BorderBrush="{DynamicResource SkLine}" Background="{DynamicResource SkFill}" Padding="{TemplateBinding Padding}">
-                  <StackPanel Orientation="Horizontal">
-                    <Grid Width="18" Height="18" Margin="4,2,10,0" VerticalAlignment="Top">
+                  <DockPanel LastChildFill="True">
+                    <Grid DockPanel.Dock="Left" Width="18" Height="18" Margin="4,2,10,0" VerticalAlignment="Top">
                       <Ellipse x:Name="ring" Stroke="{DynamicResource SkMuted}" StrokeThickness="1.5"/>
                       <Ellipse x:Name="dot" Width="8" Height="8" Fill="{DynamicResource SkOnAccent}" Visibility="Collapsed"/>
                     </Grid>
                     <ContentPresenter VerticalAlignment="Center"/>
-                  </StackPanel>
+                  </DockPanel>
                 </Border>
                 <ControlTemplate.Triggers>
                   <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="card" Property="Background" Value="{DynamicResource SkFillHover}"/></Trigger>
